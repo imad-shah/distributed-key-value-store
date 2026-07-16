@@ -3,19 +3,33 @@ package main
 import (
 	"fmt"
 	"hash/fnv"
+	"slices"
 )
 
-func hashString(s string) uint32 {
-	hash := fnv.New32a()
+
+// func getServer() {}   <- implement the ability to take a string, and find what server it mapped to. 
+// Use binary search on the sorted hashes slice, wrap end to beginning to emulate hash ring
+
+func hashString(s string) uint64 {
+	hash := fnv.New64a()
 	hash.Write([]byte(s))
-	return hash.Sum32()
+	return hash.Sum64()
 }
 
 func main() {
-	serverOne := "A"
-	serverTwo := "B"
-	serverThree := "C"
-	fmt.Printf("Server: %s | Hash: %d\n", serverOne, hashString(serverOne))
-	fmt.Printf("Server: %s | Hash: %d\n", serverTwo, hashString(serverTwo))
-	fmt.Printf("Server: %s | Hash: %d\n", serverThree, hashString(serverThree))
+	servers := []string{"A", "B", "C"}
+	hashes := make([]uint64, 0)
+	ringMap := make(map[uint64]string, 0)
+
+	for _, server := range servers {
+		serverHash := hashString(server)
+		hashes = append(hashes, serverHash)
+		ringMap[serverHash] = server
+	}
+	slices.Sort(hashes)
+
+	for hash, server := range ringMap {
+		fmt.Printf("%d -> %s\n", hash, server)
+	}
+
 }
