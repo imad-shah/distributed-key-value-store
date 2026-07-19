@@ -4,6 +4,7 @@ import (
 	"errors"
 	"hash/fnv"
 	"slices"
+	"strconv"
 )
 
 var ErrEmptyRing = errors.New("hashring: ring is empty")
@@ -23,9 +24,12 @@ func New(vnodes uint64) *Ring {
 }
 
 func (r *Ring) AddServer(s string) {
-	serverHash := hashString(s)
-	r.hashes = append(r.hashes, serverHash)
-	r.ringMap[serverHash] = s
+	for i := range r.vnodes {
+		newUUID := strconv.Itoa((int(i))) + s
+		virtualHash := hashString(newUUID)
+		r.hashes = append(r.hashes, virtualHash)
+		r.ringMap[virtualHash] = s
+	}
 	slices.Sort(r.hashes)
 }
 
