@@ -48,7 +48,9 @@ e61cb7af:  700 keys ( 7.0%)
 ```
 
 Worst: Run #2, 4800 / 400 = 12.0 (not including the dead server which would've been infinity)
+
 Imbalance ratio: 12.0x
+
 This distribution is unreliable. With only 8 points on a 2^64-sized ring, gap sizes between servers are determined by random chance. Some gaps end up several times larger than others, and whichever server sits at the end of the largest gap inherits a disproportionate amount of keys.
 
 ### Fix
@@ -95,9 +97,11 @@ a1ccd9fe-e630-4f47-a1ed-3363f294af1f: 450 keys(4.5%)
 ```
 
 Worst: Run #3, 2100 / 400 = 5.25
+
 Imbalance Ratio: 5.25x
+
 Distribution improved over no vnodes (dead servers eliminated), but 
-was still far from uniform
+was still not uniform
 
 
 ### Experiment 2: With 150 virtual nodes & 1,000,000 keys
@@ -140,7 +144,8 @@ da136693-c8df-432e-8e95-c5d886c948ca: 63800 keys (6.380%)
 
 ```
 Worst: Run #3, 289620 / 31860 = 9.09
-Imbalance Ratio: 9.09
+
+Imbalance Ratio: 9.09x
 
 Imbalanced distribution persisted even with 1M keys. The conclusion here is that sample size is not the main issue. The distribution is worse than the theoretical ideal. 
 
@@ -194,9 +199,10 @@ f658e2be-dabd-45ff-8dbe-60ef4d54653f: 113466 keys (11.3466%)
 ```
 
 Worst: Run #2, 144432 / 114572 = 1.26
+
 Imbalance ratio: 1.26x
 
 ### Conclusion
-Every server takes roughly ±13% of the keys, distribution is now uniform. Virtual node quality depends not just on vnode count but on how virtual names are constructed. Non-cryptographic hashes are sensitive to shared prefixes. This is why production implementations often use hash 
+Every server takes roughly 11-13% of the keys, distribution is now uniform. Virtual node quality depends not just on vnode count but on how virtual names are constructed. Non-cryptographic hashes are sensitive to shared prefixes. This is why production implementations often use hash 
 constructions like `hash(i, hash(serverName))` or hash functions with 
 better mixing (xxhash, murmur3) that are less prefix-sensitive.
