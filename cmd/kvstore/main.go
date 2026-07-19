@@ -10,7 +10,7 @@ func main() {
 	ring := hashring.New(1)
 	numServers := 8
 	var servers []string
-	for i := 0; i < numServers; i++ {
+	for range numServers {
 		servers = append(servers, uuid.New().String())
 	}
 	
@@ -22,7 +22,7 @@ func main() {
 	counts := make(map[string]int)
 	numKeys := 10000
 
-	for i := 0; i < numKeys; i++ {
+	for i := range numKeys {
 		key := fmt.Sprintf("key-%d", i)
 		server, err := ring.GetServer(key)
 		if err != nil {
@@ -31,7 +31,6 @@ func main() {
 		}
 		counts[server]++
 	}
-
 	for server, count := range counts {
 		fmt.Printf("%s: %d keys\n", server, count)
 	}
