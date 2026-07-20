@@ -48,6 +48,8 @@ func (r *Ring) GetServer(key string) (string, error) {
 
 }
 
+// TODO: func (r * Ring) RemoveServer()
+
 func hashString(s string) uint64 {
 	hash := fnv.New64a()
 	hash.Write([]byte(s))

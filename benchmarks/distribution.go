@@ -20,7 +20,7 @@ func main() {
 
 
 	counts := make(map[string]int)
-	numKeys := 1000000
+	numKeys := 1_000_000
 
 	for i := range numKeys {
 		key := fmt.Sprintf("key-%d", i)
