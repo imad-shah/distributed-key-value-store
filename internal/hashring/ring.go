@@ -17,6 +17,9 @@ type Ring struct {
 }
 
 func New(vnodes uint64) *Ring {
+	if vnodes == 0 {
+		panic("hashring: vnodes must be greater than 0")
+	}
 	return &Ring{
 		hashes:  make([]uint64, 0),
 		ringMap: make(map[uint64]string),
