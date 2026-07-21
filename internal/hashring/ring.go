@@ -8,6 +8,7 @@ import (
 )
 
 var ErrEmptyRing = errors.New("hashring: ring is empty")
+var ErrServerNotFound = errors.New("hashring: server not found")
 
 type Ring struct {
 	hashes  []uint64
@@ -23,12 +24,11 @@ func New(vnodes uint64) *Ring {
 	}
 }
 
-func (r *Ring) AddServer(s string) {
-	for i := range r.vnodes {
-		newUUID := strconv.Itoa((int(i))) + s
-		virtualHash := hashString(newUUID)
-		r.hashes = append(r.hashes, virtualHash)
-		r.ringMap[virtualHash] = s
+func (r *Ring) AddServer(server string) {
+	vnodeHashes := generateVNodes(server, r.vnodes)
+	for _, vnode := range vnodeHashes {
+		r.hashes = append(r.hashes, vnode)
+		r.ringMap[vnode] = server
 	}
 	slices.Sort(r.hashes)
 }
@@ -48,10 +48,44 @@ func (r *Ring) GetServer(key string) (string, error) {
 
 }
 
-// TODO: func (r * Ring) RemoveServer()
+func (r *Ring) RemoveServer(server string) error {
+	vnodeHashes := generateVNodes(server, r.vnodes)
+
+	if r.ringMap[vnodeHashes[0]] != server {
+		return ErrServerNotFound
+	}
+
+	vnodesSet := make(map[uint64]struct{}, len(vnodeHashes))
+	for _, hash := range vnodeHashes {
+		vnodesSet[hash] = struct{}{}
+	}
+
+	newHashSlice := make([]uint64, 0, len(r.hashes))
+	for _, hash := range r.hashes {
+		if _, ok := vnodesSet[hash]; !ok {
+			newHashSlice = append(newHashSlice, hash)
+		}
+	}
+	r.hashes = newHashSlice
+
+	for hash := range vnodesSet {
+		delete(r.ringMap, hash)
+	}
+	return nil
+}
 
 func hashString(s string) uint64 {
 	hash := fnv.New64a()
 	hash.Write([]byte(s))
 	return hash.Sum64()
+}
+
+func generateVNodes(s string, vnodes uint64) []uint64 {
+	res := make([]uint64, 0, vnodes)
+	for i := range vnodes {
+		vnode := strconv.Itoa(int(i)) + s
+		virtualHash := hashString(vnode)
+		res = append(res, virtualHash)
+	}
+	return res
 }
