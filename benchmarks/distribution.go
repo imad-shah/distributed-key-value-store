@@ -2,22 +2,23 @@ package main
 
 import (
 	"fmt"
-	"github.com/imad-shah/distributed-key-value-store/internal/hashring"
+
 	"github.com/google/uuid"
+	"github.com/imad-shah/distributed-key-value-store/internal/hashring"
+)
+
+const (
+	vnodes     = 256
+	numServers = 8
 )
 
 func main() {
-	ring := hashring.New(150)
-	numServers := 8
-	var servers []string
-	for range numServers {
-		servers = append(servers, uuid.New().String())
-	}
-	
-	for _, server := range servers {
-		ring.AddServer(server)
-	}
+	ring := hashring.New(vnodes)
 
+	for range numServers {
+		// Each server is a uniquely generated uuid
+		ring.AddServer(uuid.New().String())
+	}
 
 	counts := make(map[string]int)
 	numKeys := 1_000_000
