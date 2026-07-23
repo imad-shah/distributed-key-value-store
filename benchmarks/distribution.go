@@ -8,11 +8,10 @@ import (
 )
 
 const (
-	vnodes     = 256
-	numServers = 8
+	vnodes = 256
 )
 
-func main() {
+func keySpread(numServers int, numKeys int) {
 	ring := hashring.New(vnodes)
 
 	for range numServers {
@@ -21,7 +20,6 @@ func main() {
 	}
 
 	counts := make(map[string]int)
-	numKeys := 1_000_000
 
 	for i := range numKeys {
 		key := fmt.Sprintf("key-%d", i)
@@ -35,5 +33,10 @@ func main() {
 	for server, count := range counts {
 		fmt.Printf("%s: %d keys\n", server, count)
 	}
+}
 
+func main() {
+	numServers := 8
+	numKeys := 100_000
+	keySpread(numServers, numKeys)
 }
