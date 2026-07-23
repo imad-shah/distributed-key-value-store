@@ -89,6 +89,7 @@ func TestRebalanceMinimalDisruption(t *testing.T) {
 			// because they rely on a shared mutable ring object
 			defer ring.AddServer(deadServer)
 
+			rotated_keys := 0
 			for _, k := range keys {
 				oldServer := keyMap[k]
 				newServer, err := ring.GetServer(k)
@@ -101,6 +102,7 @@ func TestRebalanceMinimalDisruption(t *testing.T) {
 					if newServer == deadServer {
 						t.Errorf("GetServer(%q) = %s, expected to move away from dead server", k, newServer)
 					}
+					rotated_keys++
 				} else {
 					// key was not on dead server, should NOT move
 					if oldServer != newServer {
@@ -108,6 +110,7 @@ func TestRebalanceMinimalDisruption(t *testing.T) {
 					}
 				}
 			}
+			t.Logf("%d of %d keys moved (%.1f%%)", rotated_keys, len(keys), 100*float64(rotated_keys)/float64(len(keys)))
 		})
 	}
 }
@@ -119,7 +122,6 @@ func TestRebalanceMinimalDisruption(t *testing.T) {
 // populated ring > RemoveServer on a server that doesn't exist
 
 // ^ use errors.Is, both errors already exist in ring.go
-
 
 // TODO: TestDistribution()
 // no server should hold <0.7x or >1.4x the mean
