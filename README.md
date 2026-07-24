@@ -33,3 +33,9 @@ go test -v ./internal/hashring/   # includes rebalance percentages
 ```bash
 go run benchmarks/distribution.go  
 ```
+
+## Testing Key-Val Store
+
+```bash
+go test -race ./internal/store/
+```
