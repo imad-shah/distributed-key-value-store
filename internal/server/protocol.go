@@ -1,29 +1,29 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"strings"
-	"errors"
 )
 
 type CommandType string
 
 type Command struct {
-	Type CommandType
-	Key string
+	Type  CommandType
+	Key   string
 	Value string
 }
 
 var (
-	ErrEmptyCommand = errors.New("Empty Command")
-	ErrUnknownCommand = errors.New("Unknown Command")
-	ErrWrongNumArgs = errors.New("Wrong number of arguments")
+	ErrEmptyCommand   = errors.New("empty command")
+	ErrUnknownCommand = errors.New("unknown command")
+	ErrWrongNumArgs   = errors.New("wrong number of arguments")
 )
 
 const (
-	CmdGet CommandType = "GET"
-	CmdSet CommandType = "SET"
-	CmdDelete CommandType = "DELETE"
+	CmdGet     CommandType = "GET"
+	CmdSet     CommandType = "SET"
+	CmdDelete  CommandType = "DELETE"
 	CmdUnknown CommandType = "UNKNOWN"
 )
 
@@ -62,7 +62,7 @@ func Parse(raw string) (Command, error) {
 	case CmdGet, CmdDelete:
 		key, extra := splitFirst(rest)
 		if key == "" || extra != "" {
-			return Command{}, fmt.Errorf("%w for %q", ErrWrongNumArgs, cmdWord)
+			return Command{}, fmt.Errorf("%w for %s", ErrWrongNumArgs, cmdWord)
 		}
 		return Command{Type: cmdType, Key: key}, nil
 
