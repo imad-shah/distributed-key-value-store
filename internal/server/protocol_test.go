@@ -1,15 +1,15 @@
 package server
 
 import (
-	"testing"
 	"errors"
+	"testing"
 )
 
 func TestParse(t *testing.T) {
 	tests := []struct {
-		name string
-		input string
-		want Command
+		name    string
+		input   string
+		want    Command
 		wantErr error
 	}{
 		{"get", "GET foo", Command{Type: "GET", Key: "foo"}, nil},
@@ -24,7 +24,6 @@ func TestParse(t *testing.T) {
 		{"unknown", "PING foo", Command{}, ErrUnknownCommand},
 		{"wrongNumArgsTooLittle", "GET", Command{}, ErrWrongNumArgs},
 		{"wrongNumArgsTooBig", "GET foo bar", Command{}, ErrWrongNumArgs},
-
 	}
 
 	for _, test := range tests {
