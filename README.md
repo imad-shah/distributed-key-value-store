@@ -1,20 +1,39 @@
 # distributed-key-value-store
 
-A distributed key-value store written in Go.
+An in-memory key-value store in Go, served over TCP, being built toward a
+distributed (partitioned, replicated) system.
+
+## Current Progress
+
+Single-node server works. A TCP server accepts concurrent clients and
+serves GET/SET/DELETE against a shared in-memory store.
 
 ## Design
 
-Keys are partitioned across servers using consistent hashing with
-virtual nodes. Each server is placed on a 64-bit hash ring at 256
-positions, and a key routes to the first server position at or after
-the key's own hash. This keeps rebalancing proportional. Removing one
-of N servers remaps roughly 1/N of keys and leaves the rest in place,
-rather than remapping nearly everything as `hash % N` would.
+The store is an in-memory `map[string]string` guarded by a `sync.RWMutex`,
+shared across all client connections. The server accepts each connection
+in its own goroutine and speaks a simple line-based text protocol:
+
+    SET key value    -> OK
+    GET key          -> value | NOT_FOUND
+    DELETE key       -> OK | NOT_FOUND
+    <bad input>      -> error <reason>
+
+Keys will be partitioned across nodes using consistent hashing with
+virtual nodes, each node sits on a 64-bit hash ring at 256 positions, and
+a key routes to the first node position at or after the key's hash. 
+This keeps rebalancing proportional, removing one of N nodes remaps roughly
+1/N of keys and leaves the rest in place, rather than almost 
+everything as `hash % N` would.
 
 ## Layout
 
-    internal/hashring/   hashing ring
-    cmd/kvstore/         server entry point (WIP)
+    cmd/kvstore/         server entry point
+
+    internal/server/     TCP server, protocol parser, request dispatch
+    internal/store/      in-memory key-value store
+    internal/hashring/   consistent hashing ring
+
     benchmarks/          distribution measurement script
     decisions/           architecture decision records
 
@@ -22,20 +41,30 @@ rather than remapping nearly everything as `hash % N` would.
 
 - [001 — Virtual nodes and FNV-1a prefix ordering](decisions/001-virtual-nodes.md)
 
+## Running the Server
+
+```bash
+go run ./cmd/kvstore/
+```
+
+Then connect with any TCP client:
+
+```bash
+nc localhost 8080
+SET foo bar
+GET foo
+```
+
 ## Running the tests
+
 ```bash
-go test ./...
-go test -v ./internal/hashring/   # includes rebalance percentages
+go test ./...                      # all packages
+go test -race ./...                # with the race detector
+go test -v ./internal/hashring/    # includes rebalance move percentages
 ```
 
-## Running distribution test
+## Distribution benchmark
 
 ```bash
-go run benchmarks/distribution.go  
-```
-
-## Testing Key-Val Store
-
-```bash
-go test -race ./internal/store/
+go run ./benchmarks/distribution.go
 ```
