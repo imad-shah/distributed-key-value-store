@@ -83,5 +83,14 @@ go run ./cmd/kvstore/ --id node-b --addr :8081 --peers node-a=:8080,node-c=:8082
 
 Terminal 3:
 ```bash
-nc localhost 8080
+nc localhost 8080 # only connected to node-a ever
+SET foo bar # routes to node-a (local)
+GET foo # returns bar | pulls from node-a
+SET bar baz # routes to node-b (forwarded)
+GET bar # returns baz | pulls from node-b 
 ```
+Even though we are connected to **only** node-a (8080), we still are able to: \
+`set` 'bar' -> 'baz'\
+`get` 'bar' \
+and which can only happen on node-b, proving that node-a is able to forward the request to node-b
+and return the response
