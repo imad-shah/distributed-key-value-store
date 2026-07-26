@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/imad-shah/distributed-key-value-store/internal/store"
+	"github.com/imad-shah/distributed-key-value-store/internal/cluster"
+	"github.com/imad-shah/distributed-key-value-store/internal/hashring"
 )
 
 func TestFullLoop(t *testing.T) {
@@ -22,14 +24,18 @@ func TestFullLoop(t *testing.T) {
 	addr := listener.Addr().String()
 
 	// Run accept loop on listener
-	go acceptLoop(listener, store.New())
+	node, err := cluster.New("test-node", ":0", "", hashring.New(256))
+	if err != nil {
+		t.Fatalf("cluster.New: %v", err)
+	}
+	go acceptLoop(listener, node, store.New())
 
 	// Dial in as client
 	conn, err := net.Dial(network, addr)
-	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
 	if err != nil {
 		t.Fatalf("failed to dial: %v", err)
 	}
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
 	defer conn.Close()
 
 	// Assert responses

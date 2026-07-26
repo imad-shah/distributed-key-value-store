@@ -6,27 +6,44 @@ import (
 	"io"
 	"log"
 	"net"
+	"strings"
 
 	"github.com/imad-shah/distributed-key-value-store/internal/store"
+	"github.com/imad-shah/distributed-key-value-store/internal/cluster"
 )
 
-func handleConnection(conn net.Conn, kv *store.Store) {
+func handleConnection(conn net.Conn, node *cluster.Node, kv *store.Store) {
 	defer conn.Close()
-	serve(conn, conn, kv)
+	serve(conn, conn, node, kv)
 }
 
-func serve(r io.Reader, w io.Writer, kv *store.Store) {
-
+func serve(r io.Reader, w io.Writer, node *cluster.Node, kv *store.Store) {
 	scanner := bufio.NewScanner(r)
 
 	for scanner.Scan() {
-		input, err := Parse(scanner.Text())
+		line := scanner.Text()
+		input, err := Parse(line)
 		if err != nil {
 			writeLine(w, fmt.Sprintf("error %v", err))
 			continue
 		}
 
 		var response string
+		addr, isSelf, err := node.OwnerAddr(input.Key)
+		if err != nil {
+			writeLine(w, fmt.Sprintf("error %v", err))
+			continue
+		}
+		if !isSelf{
+			log.Printf("forwarding %s for key %q to %s", input.Type, input.Key, addr)
+			response, err := forward(addr, line)
+			if err != nil {
+				writeLine(w, fmt.Sprintf("ERR forward failed: %v", err))
+				continue
+			}
+			writeLine(w, response)
+			continue
+		}
 		switch input.Type {
 		case CmdGet:
 			if val, ok := kv.Get(input.Key); ok {
@@ -53,16 +70,32 @@ func serve(r io.Reader, w io.Writer, kv *store.Store) {
 
 }
 
+func forward(addr, line string) (string, error) {
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		return "", err
+	}
+	defer conn.Close()
+
+	if _, err := fmt.Fprintf(conn, "%s\n", line); err != nil {
+		return "", err
+	}
+	response, err := bufio.NewReader(conn).ReadString('\n')
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimRight(response, "\n"), nil
+}
+
 func writeLine(w io.Writer, s string) {
 	if _, err := w.Write([]byte(s + "\n")); err != nil {
 		log.Printf("write error: %v", err)
 	}
 }
 
-func StartServer() {
+func StartServer(addr string, node *cluster.Node, kv *store.Store) {
 	network := "tcp"
-	port := ":8080"
-	listener, err := net.Listen(network, port)
+	listener, err := net.Listen(network, addr)
 	if err != nil {
 		log.Printf("error connecting to server: %v", err)
 		return
@@ -70,16 +103,16 @@ func StartServer() {
 
 	defer listener.Close()
 	log.Printf("Listening on %s", listener.Addr())
-	acceptLoop(listener, store.New())
+	acceptLoop(listener, node, kv)
 
 }
-func acceptLoop(listener net.Listener, kv *store.Store) {
+func acceptLoop(listener net.Listener, node *cluster.Node, kv *store.Store) {
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
 			log.Printf("error accepting connection: %v", err)
 			continue
 		}
-		go handleConnection(conn, kv)
+		go handleConnection(conn, node, kv)
 	}
 }
