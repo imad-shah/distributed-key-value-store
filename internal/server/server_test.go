@@ -24,10 +24,11 @@ func TestServe(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			kv := store.New()
+			pool := NewPool(8)
 			input := strings.NewReader(test.input)
 			var output bytes.Buffer
 			node, _ := cluster.New("test-node", ":0", "", hashring.New(256))
-			serve(input, &output, node, kv)
+			serve(input, &output, node, kv, pool)
 			if got := output.String(); got != test.want {
 				t.Errorf("serve(%q) = %q, want %q", test.input, got, test.want)
 			}

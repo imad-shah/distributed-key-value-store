@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imad-shah/distributed-key-value-store/internal/store"
 	"github.com/imad-shah/distributed-key-value-store/internal/cluster"
 	"github.com/imad-shah/distributed-key-value-store/internal/hashring"
+	"github.com/imad-shah/distributed-key-value-store/internal/store"
 )
 
 func TestFullLoop(t *testing.T) {
@@ -28,7 +28,7 @@ func TestFullLoop(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cluster.New: %v", err)
 	}
-	go acceptLoop(listener, node, store.New())
+	go acceptLoop(listener, node, store.New(), NewPool(8))
 
 	// Dial in as client
 	conn, err := net.Dial(network, addr)

@@ -12,12 +12,12 @@ import (
 	"github.com/imad-shah/distributed-key-value-store/internal/cluster"
 )
 
-func handleConnection(conn net.Conn, node *cluster.Node, kv *store.Store) {
+func handleConnection(conn net.Conn, node *cluster.Node, kv *store.Store, pool *Pool) {
 	defer conn.Close()
-	serve(conn, conn, node, kv)
+	serve(conn, conn, node, kv, pool)
 }
 
-func serve(r io.Reader, w io.Writer, node *cluster.Node, kv *store.Store) {
+func serve(r io.Reader, w io.Writer, node *cluster.Node, kv *store.Store, pool *Pool) {
 	scanner := bufio.NewScanner(r)
 
 	for scanner.Scan() {
@@ -36,7 +36,7 @@ func serve(r io.Reader, w io.Writer, node *cluster.Node, kv *store.Store) {
 		}
 		if !isSelf{
 			log.Printf("forwarding %s for key %q to %s", input.Type, input.Key, addr)
-			response, err := forward(addr, line)
+			response, err := forward(pool, addr, line)
 			if err != nil {
 				writeLine(w, fmt.Sprintf("ERR forward failed: %v", err))
 				continue
@@ -70,20 +70,22 @@ func serve(r io.Reader, w io.Writer, node *cluster.Node, kv *store.Store) {
 
 }
 
-func forward(addr, line string) (string, error) {
-	conn, err := net.Dial("tcp", addr)
+func forward(pool *Pool, addr, line string) (string, error) {
+	conn, err := pool.Get(addr)
 	if err != nil {
 		return "", err
 	}
-	defer conn.Close()
 
 	if _, err := fmt.Fprintf(conn, "%s\n", line); err != nil {
+		conn.Close() // broke mid write
 		return "", err
 	}
 	response, err := bufio.NewReader(conn).ReadString('\n')
 	if err != nil {
+		conn.Close() // broke mid read
 		return "", err
 	}
+	pool.Put(addr, conn)
 	return strings.TrimRight(response, "\n"), nil
 }
 
@@ -93,7 +95,7 @@ func writeLine(w io.Writer, s string) {
 	}
 }
 
-func StartServer(addr string, node *cluster.Node, kv *store.Store) {
+func StartServer(addr string, node *cluster.Node, kv *store.Store, pool *Pool) {
 	network := "tcp"
 	listener, err := net.Listen(network, addr)
 	if err != nil {
@@ -103,16 +105,16 @@ func StartServer(addr string, node *cluster.Node, kv *store.Store) {
 
 	defer listener.Close()
 	log.Printf("Listening on %s", listener.Addr())
-	acceptLoop(listener, node, kv)
+	acceptLoop(listener, node, kv, pool)
 
 }
-func acceptLoop(listener net.Listener, node *cluster.Node, kv *store.Store) {
+func acceptLoop(listener net.Listener, node *cluster.Node, kv *store.Store, pool *Pool) {
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
 			log.Printf("error accepting connection: %v", err)
 			continue
 		}
-		go handleConnection(conn, node, kv)
+		go handleConnection(conn, node, kv, pool)
 	}
 }

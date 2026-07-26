@@ -26,5 +26,6 @@ func main() {
 		log.Fatalf("error creating cluster: %v", err)
 	}
 	kv := store.New()
-	server.StartServer(*addr, node, kv)
+	pool := server.NewPool(8)
+	server.StartServer(*addr, node, kv, pool)
 }

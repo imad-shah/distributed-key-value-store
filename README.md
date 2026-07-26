@@ -68,3 +68,19 @@ go test -v ./internal/hashring/    # includes rebalance move percentages
 ```bash
 go run ./benchmarks/distribution.go
 ```
+
+## Testing multiple servers with pools
+
+Terminal 1:
+```bash
+go run ./cmd/kvstore/ --id node-a --addr :8080 --peers node-b=:8081,node-c=:8082
+```
+Terminal 2:
+```bash
+go run ./cmd/kvstore/ --id node-b --addr :8081 --peers node-a=:8080,node-c=:8082
+```
+
+Terminal 3:
+```bash
+nc localhost 8080
+```
