@@ -62,21 +62,10 @@ func TestRebalanceMinimalDisruption(t *testing.T) {
 	ring, servers := newTestRing(t, testNumServers)
 
 	// generating testNumKeys keys, adding to a slice
-	keys := make([]string, 0, testNumKeys)
-	for i := range testNumKeys {
-		k := fmt.Sprintf("Key-%d", i)
-		keys = append(keys, k)
-	}
+	keys := makeKeys(testNumKeys)
 
 	// taking each key, routing it to its initial server
-	keyMap := make(map[string]string, testNumKeys)
-	for _, key := range keys {
-		server, err := ring.GetServer(key)
-		if err != nil {
-			t.Fatalf("GetServer(%q) unexpected error: %v", key, err)
-		}
-		keyMap[key] = server
-	}
+	keyMap := routeAll(t, ring, keys)
 
 	for _, deadServer := range servers {
 		t.Run("Remove_"+deadServer, func(t *testing.T) {
@@ -137,7 +126,8 @@ func TestRemoveServerNotFound(t *testing.T) {
 func TestDistribution(t *testing.T) {
 	t.Parallel()
 	ring, servers := newTestRing(t, testNumServers)
-	counts := keySpread(t, ring, testNumKeys)
+	keys := makeKeys(testNumKeys)
+	counts := keySpread(t, ring, keys)
 
 	mean := float64(testNumKeys) / float64(testNumServers)
 	for _, s := range servers {
@@ -162,20 +152,36 @@ func TestNewPanicsOnZeroVNodes(t *testing.T) {
 }
 
 // Helper function to spread testNumKeys on a given Ring
-func keySpread(t *testing.T, ring *Ring, numKeys int) map[string]int {
+func keySpread(t *testing.T, ring *Ring, keys []string) map[string]int {
 	t.Helper()
+	routed := routeAll(t, ring, keys)
 
 	counts := make(map[string]int)
-	for i := range numKeys {
-		key := fmt.Sprintf("key-%d", i)
-
-		server, err := ring.GetServer(key)
-		if err != nil {
-			t.Fatalf("GetServer(%q) got %v", key, err)
-		}
+	for _, server := range routed {
 		counts[server]++
 	}
 	return counts
+}
+
+func makeKeys(n int) []string {
+	keys := make([]string, 0, n)
+	for i := range n {
+		keys = append(keys, fmt.Sprintf("Key-%d", i))
+	}
+	return keys
+}
+
+func routeAll(t *testing.T, ring *Ring, keys []string) map[string]string {
+	t.Helper()
+	m := make(map[string]string, len(keys))
+	for _, key := range keys {
+		server, err := ring.GetServer(key)
+		if err != nil {
+			t.Fatalf("GetServer(%q): %v", key, err)
+		}
+		m[key] = server
+	}
+	return m
 }
 
 // Helper to construct a new Ring object
