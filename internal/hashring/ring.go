@@ -5,12 +5,14 @@ import (
 	"hash/fnv"
 	"slices"
 	"strconv"
+	"sync"
 )
 
 var ErrEmptyRing = errors.New("hashring: ring is empty")
 var ErrServerNotFound = errors.New("hashring: server not found")
 
 type Ring struct {
+	mu sync.RWMutex
 	hashes  []uint64
 	ringMap map[uint64]string
 	vnodes  uint64
@@ -28,6 +30,8 @@ func New(vnodes uint64) *Ring {
 }
 
 func (r *Ring) AddServer(server string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	vnodeHashes := generateVNodes(server, r.vnodes)
 	for _, vnode := range vnodeHashes {
 		r.hashes = append(r.hashes, vnode)
@@ -37,6 +41,8 @@ func (r *Ring) AddServer(server string) {
 }
 
 func (r *Ring) GetServer(key string) (string, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	if len(r.hashes) == 0 {
 		return "", ErrEmptyRing
 	}
@@ -52,6 +58,8 @@ func (r *Ring) GetServer(key string) (string, error) {
 }
 
 func (r *Ring) RemoveServer(server string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	vnodeHashes := generateVNodes(server, r.vnodes)
 
 	if r.ringMap[vnodeHashes[0]] != server {
