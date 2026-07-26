@@ -2,9 +2,9 @@ package server
 
 import (
 	"bytes"
-	"github.com/imad-shah/distributed-key-value-store/internal/store"
-	"github.com/imad-shah/distributed-key-value-store/internal/hashring"
 	"github.com/imad-shah/distributed-key-value-store/internal/cluster"
+	"github.com/imad-shah/distributed-key-value-store/internal/hashring"
+	"github.com/imad-shah/distributed-key-value-store/internal/store"
 	"strings"
 	"testing"
 )

@@ -8,21 +8,21 @@ import (
 )
 
 type Node struct {
-	id string
-	addr string
-	members map[string]struct{}
+	id       string
+	addr     string
+	members  map[string]struct{}
 	addrBook map[string]string
-	ring *hashring.Ring
+	ring     *hashring.Ring
 }
 
-func New(id, addr, peersRaw string, ring *hashring.Ring) (*Node, error){
+func New(id, addr, peersRaw string, ring *hashring.Ring) (*Node, error) {
 	peers, err := parsePeers(peersRaw)
 	if err != nil {
 		return nil, err
 	}
 
-	members := map[string]struct{}{id: {}} // add self
-	addrBook := map[string]string{id: addr}   // add self
+	members := map[string]struct{}{id: {}}  // add self
+	addrBook := map[string]string{id: addr} // add self
 
 	for peerId, peerAddr := range peers {
 		members[peerId] = struct{}{}
@@ -34,11 +34,11 @@ func New(id, addr, peersRaw string, ring *hashring.Ring) (*Node, error){
 	}
 
 	return &Node{
-		id:id,
-		addr:addr,
-		members:members,
+		id:       id,
+		addr:     addr,
+		members:  members,
 		addrBook: addrBook,
-		ring: ring,
+		ring:     ring,
 	}, nil
 }
 
@@ -57,7 +57,7 @@ func parsePeers(raw string) (map[string]string, error) {
 		return peerMap, nil
 	}
 
-	for _, entry := range strings.Split(raw, ","){
+	for _, entry := range strings.Split(raw, ",") {
 		entry = strings.TrimSpace(entry)
 		id, addr, found := strings.Cut(entry, "=")
 		if !found || id == "" || addr == "" {

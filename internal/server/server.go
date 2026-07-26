@@ -8,8 +8,8 @@ import (
 	"net"
 	"strings"
 
-	"github.com/imad-shah/distributed-key-value-store/internal/store"
 	"github.com/imad-shah/distributed-key-value-store/internal/cluster"
+	"github.com/imad-shah/distributed-key-value-store/internal/store"
 )
 
 func handleConnection(conn net.Conn, node *cluster.Node, kv *store.Store, pool *Pool) {
@@ -34,7 +34,7 @@ func serve(r io.Reader, w io.Writer, node *cluster.Node, kv *store.Store, pool *
 			writeLine(w, fmt.Sprintf("error %v", err))
 			continue
 		}
-		if !isSelf{
+		if !isSelf {
 			log.Printf("forwarding %s for key %q to %s", input.Type, input.Key, addr)
 			response, err := forward(pool, addr, line)
 			if err != nil {

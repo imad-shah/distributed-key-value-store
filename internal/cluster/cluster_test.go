@@ -1,10 +1,9 @@
 package cluster
 
 import (
-	"testing"
 	"github.com/imad-shah/distributed-key-value-store/internal/hashring"
+	"testing"
 )
-
 
 const (
 	vNodes = 256
@@ -16,11 +15,11 @@ func TestOwnerAddr(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 	tests := []struct {
-		name string
-		key string
-		wantAddr string
+		name       string
+		key        string
+		wantAddr   string
 		wantIsSelf bool
-	} {
+	}{
 		{"self", "foo", ":8080", true},
 		{"peer", "bar", ":8081", false},
 	}
@@ -32,8 +31,8 @@ func TestOwnerAddr(t *testing.T) {
 				t.Fatalf("OwnerAddr(%q): unexpected error: %v", test.key, err)
 			}
 			if addr != test.wantAddr || isSelf != test.wantIsSelf {
-				t.Errorf("OwnerAddr(%q) = %q, %v; want %q, %v", 
-				test.key, addr, isSelf, test.wantAddr, test.wantIsSelf)
+				t.Errorf("OwnerAddr(%q) = %q, %v; want %q, %v",
+					test.key, addr, isSelf, test.wantAddr, test.wantIsSelf)
 			}
 		})
 	}

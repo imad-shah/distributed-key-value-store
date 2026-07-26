@@ -4,7 +4,7 @@ import (
 	"sync"
 )
 
-// Store is a thread-safe, in-memory, key-value store 
+// Store is a thread-safe, in-memory, key-value store
 type Store struct {
 	mu   sync.RWMutex
 	data map[string]string

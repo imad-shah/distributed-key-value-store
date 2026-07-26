@@ -1,21 +1,21 @@
 package server
 
 import (
+	"log"
 	"net"
 	"sync"
-	"log"
 )
 
 type Pool struct {
-	mu sync.Mutex
+	mu   sync.Mutex
 	idle map[string]chan net.Conn
-	cap int
+	cap  int
 }
 
 func NewPool(capacity int) *Pool {
 	return &Pool{
 		idle: make(map[string]chan net.Conn),
-		cap: capacity,
+		cap:  capacity,
 	}
 }
 
@@ -42,7 +42,7 @@ func (p *Pool) Put(addr string, conn net.Conn) {
 	select {
 	case idleList <- conn:
 	default:
-		conn.Close()	
+		conn.Close()
 	}
 
 }

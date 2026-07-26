@@ -12,7 +12,7 @@ var ErrEmptyRing = errors.New("hashring: ring is empty")
 var ErrServerNotFound = errors.New("hashring: server not found")
 
 type Ring struct {
-	mu sync.RWMutex
+	mu      sync.RWMutex
 	hashes  []uint64
 	ringMap map[uint64]string
 	vnodes  uint64
