@@ -39,7 +39,8 @@ everything as `hash % N` would.
 
 ## Decisions
 
-- [001 — Virtual nodes and FNV-1a prefix ordering](decisions/001-virtual-nodes.md)
+- [001: Virtual nodes and FNV-1a prefix ordering](decisions/001-virtual-nodes.md)
+- [002: Connection pool for forwarding](decisions/002-connection-pool.md)
 
 ## Running the Server
 

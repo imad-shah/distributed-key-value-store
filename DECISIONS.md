@@ -6,7 +6,7 @@ Each entry captures context, alternatives considered, and thinking process.
 ## Index
 
 - [001: Virtual nodes and FNV prefix bias](decisions/001-virtual-nodes.md)
-- (future entries here)
+- [002: Connection pool for forwarding](decisions/002-connection-pool.md)
 
 ## Format
 
