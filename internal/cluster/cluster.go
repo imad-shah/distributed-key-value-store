@@ -2,6 +2,7 @@ package cluster
 
 import (
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/imad-shah/distributed-key-value-store/internal/hashring"
@@ -30,9 +31,11 @@ func New(id, addr, peersRaw string, ring *hashring.Ring) (*Node, error) {
 	}
 
 	for memberId := range members {
-		ring.AddServer(memberId)
+		if err := ring.AddServer(memberId); err != nil {
+			return nil, fmt.Errorf("add cluster member %q to ring: %w", memberId, err)
+		}
 	}
-
+	log.Printf("[%v] sees members %v", id, peers)
 	return &Node{
 		id:       id,
 		addr:     addr,

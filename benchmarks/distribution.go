@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 
 	"github.com/google/uuid"
 	"github.com/imad-shah/distributed-key-value-store/internal/hashring"
@@ -15,8 +16,9 @@ func keySpread(numServers int, numKeys int) {
 	ring := hashring.New(vnodes)
 
 	for range numServers {
-		// Each server is a uniquely generated uuid
-		ring.AddServer(uuid.New().String())
+		if err := ring.AddServer(uuid.New().String()); err != nil {
+			log.Fatalf("AddServer: %v", err)
+		}
 	}
 
 	counts := make(map[string]int)
