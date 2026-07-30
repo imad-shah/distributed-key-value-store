@@ -21,20 +21,29 @@ var (
 )
 
 const (
-	CmdGet     CommandType = "GET"
-	CmdSet     CommandType = "SET"
-	CmdDelete  CommandType = "DELETE"
-	CmdUnknown CommandType = "UNKNOWN"
+	CmdGet           CommandType = "GET"
+	CmdReplicaGet    CommandType = "REPLICA_GET"
+	CmdSet           CommandType = "SET"
+	CmdReplicaSet    CommandType = "REPLICA_SET"
+	CmdDelete        CommandType = "DELETE"
+	CmdReplicaDelete CommandType = "REPLICA_DELETE"
+	CmdUnknown       CommandType = "UNKNOWN"
 )
 
 func parseCommandType(s string) CommandType {
 	switch strings.ToUpper(s) {
 	case "GET":
 		return CmdGet
+	case "REPLICA_GET":
+		return CmdReplicaGet
 	case "SET":
 		return CmdSet
+	case "REPLICA_SET":
+		return CmdReplicaSet
 	case "DELETE":
 		return CmdDelete
+	case "REPLICA_DELETE":
+		return CmdReplicaDelete
 	default:
 		return CmdUnknown
 	}
@@ -59,19 +68,19 @@ func Parse(raw string) (Command, error) {
 	cmdType := parseCommandType(cmdWord)
 
 	switch cmdType {
-	case CmdGet, CmdDelete:
+	case CmdGet, CmdReplicaGet, CmdDelete, CmdReplicaDelete:
 		key, extra := splitFirst(rest)
 		if key == "" || extra != "" {
 			return Command{}, fmt.Errorf("%w for %s", ErrWrongNumArgs, cmdWord)
 		}
 		return Command{Type: cmdType, Key: key}, nil
 
-	case CmdSet:
+	case CmdSet, CmdReplicaSet:
 		key, value := splitFirst(rest)
 		if key == "" || value == "" {
-			return Command{}, fmt.Errorf("%w for 'SET'", ErrWrongNumArgs)
+			return Command{}, fmt.Errorf("%w for %s", ErrWrongNumArgs, cmdWord)
 		}
-		return Command{Type: CmdSet, Key: key, Value: value}, nil
+		return Command{Type: cmdType, Key: key, Value: value}, nil
 
 	default:
 		return Command{}, fmt.Errorf("%w: %q", ErrUnknownCommand, cmdWord)
