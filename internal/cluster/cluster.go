@@ -16,6 +16,12 @@ type Node struct {
 	ring     *hashring.Ring
 }
 
+type Replica struct {
+	ID string
+	Addr string
+	IsSelf bool
+}
+
 func New(id, addr, peersRaw string, ring *hashring.Ring) (*Node, error) {
 	peers, err := parsePeers(peersRaw)
 	if err != nil {
@@ -44,13 +50,39 @@ func New(id, addr, peersRaw string, ring *hashring.Ring) (*Node, error) {
 		ring:     ring,
 	}, nil
 }
-
+ 
 func (node *Node) OwnerAddr(key string) (addr string, isSelf bool, err error) {
 	ownerId, err := node.ring.GetServer(key)
 	if err != nil {
 		return "", false, err
 	}
 	return node.addrBook[ownerId], ownerId == node.id, nil
+}
+
+func (node *Node) Replicas(key string, n int) ([]Replica, error) {
+	servers, err := node.ring.GetNServers(key, n)
+
+	if err != nil {
+		return nil, err
+	}
+
+	res := make([]Replica, 0, n)
+
+	for _, server := range servers {
+		addr, ok := node.addrBook[server]
+		if !ok {
+			return nil, fmt.Errorf("address not found for server %q", server)
+		}
+
+		isSelf := node.id == server
+
+		res = append(res, Replica{
+			ID: server,
+			Addr: addr,
+			IsSelf: isSelf,
+		})
+	}
+	return res, nil
 }
 
 func parsePeers(raw string) (map[string]string, error) {
