@@ -10,12 +10,15 @@ import (
 
 var ErrEmptyRing = errors.New("hashring: ring is empty")
 var ErrServerNotFound = errors.New("hashring: server not found")
+var ErrTooManyReplicas = errors.New("hashring: too many replicas, not enough servers")
+var ErrDuplicateServer = errors.New("hashring: duplicate server detected")
 
 type Ring struct {
 	mu      sync.RWMutex
 	hashes  []uint64
 	ringMap map[uint64]string
 	vnodes  uint64
+	servers map[string]struct{}
 }
 
 func New(vnodes uint64) *Ring {
@@ -25,19 +28,25 @@ func New(vnodes uint64) *Ring {
 	return &Ring{
 		hashes:  make([]uint64, 0),
 		ringMap: make(map[uint64]string),
+		servers: make(map[string]struct{}),
 		vnodes:  vnodes,
 	}
 }
 
-func (r *Ring) AddServer(server string) {
+func (r *Ring) AddServer(server string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if _, ok := r.servers[server]; ok {
+		return ErrDuplicateServer
+	}
 	vnodeHashes := generateVNodes(server, r.vnodes)
 	for _, vnode := range vnodeHashes {
 		r.hashes = append(r.hashes, vnode)
 		r.ringMap[vnode] = server
 	}
 	slices.Sort(r.hashes)
+	r.servers[server] = struct{}{}
+	return nil
 }
 
 func (r *Ring) GetServer(key string) (string, error) {
@@ -55,6 +64,38 @@ func (r *Ring) GetServer(key string) (string, error) {
 	targetHash := r.hashes[idx]
 	return r.ringMap[targetHash], nil
 
+}
+
+func (r *Ring) GetNServers(key string, n int) ([]string, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	if len(r.hashes) == 0 {
+		return nil, ErrEmptyRing
+	}
+
+	if n > len(r.servers) {
+		return nil, ErrTooManyReplicas
+	}
+
+	hashedKey := hashString(key)
+	idx, _ := slices.BinarySearch(r.hashes, hashedKey)
+	if idx >= len(r.hashes) {
+		idx = 0
+	}
+
+	res := make([]string, 0, n)
+	seen := make(map[string]struct{}, n)
+
+	for len(res) < n {
+		server := r.ringMap[r.hashes[idx]]
+		if _, ok := seen[server]; !ok {
+			seen[server] = struct{}{}
+			res = append(res, server)
+		}
+		idx = (idx + 1) % len(r.hashes)
+	}
+	return res, nil
 }
 
 func (r *Ring) RemoveServer(server string) error {
@@ -82,6 +123,7 @@ func (r *Ring) RemoveServer(server string) error {
 	for hash := range vnodesSet {
 		delete(r.ringMap, hash)
 	}
+	delete(r.servers, server)
 	return nil
 }
 

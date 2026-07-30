@@ -10,9 +10,10 @@ import (
 )
 
 const (
-	testVNodes     = 256
-	testNumKeys    = 100_000
-	testNumServers = 8
+	testVNodes      = 256
+	testNumKeys     = 100_000
+	testNumServers  = 8
+	testNumReplicas = 3
 )
 
 // TestKeyConsistency verifies that GetServer returns a stable server
@@ -151,6 +152,86 @@ func TestNewPanicsOnZeroVNodes(t *testing.T) {
 	New(0)
 }
 
+func TestAddDuplicateServer(t *testing.T) {
+	t.Parallel()
+
+	ring, _ := newTestRing(t, testNumServers)
+	server := "node-a"
+
+	if err := ring.AddServer(server); err != nil {
+		t.Fatalf("first AddServer(%q): %v", server, err)
+	}
+
+	if err := ring.AddServer(server); !errors.Is(err, ErrDuplicateServer) {
+		t.Errorf("duplicate AddServer(%q) = %v, want ErrDuplicateServer", server, err)
+	}
+}
+
+func TestGetNServers(t *testing.T) {
+	t.Parallel()
+	ring, servers := newTestRing(t, testNumServers)
+
+	serverList := make(map[string]struct{}, len(servers))
+	for _, server := range servers {
+		serverList[server] = struct{}{}
+	}
+
+	// takes a key, finds its replicas
+	// 1. ensures there are testNumReplicas present
+	// 2. ensures the replicas exist in the serverList
+	// 3. ensures the replicas are all unique
+
+	for _, key := range makeKeys(1_000) {
+		replicas, err := ring.GetNServers(key, testNumReplicas)
+		if err != nil {
+			t.Fatalf("GetNServers(%q): %v", key, err)
+		}
+
+		if len(replicas) != testNumReplicas {
+			t.Fatalf("GetNServers(%q) = %d servers, want %d", key, len(replicas), testNumReplicas)
+		}
+
+		seen := make(map[string]struct{}, testNumReplicas)
+		for _, server := range replicas {
+			if _, ok := serverList[server]; !ok {
+				t.Errorf("GetNServers(%q): %q not in ring", key, server)
+			}
+			if _, ok := seen[server]; ok {
+				t.Errorf("GetNServers(%q) : %q duplicated", key, server)
+			}
+			seen[server] = struct{}{}
+		}
+	}
+}
+func TestGetNServersTooMany(t *testing.T) {
+	t.Parallel()
+
+	ring, _ := newTestRing(t, testNumServers)
+	if _, err := ring.GetNServers("node-a", testNumServers+1); !errors.Is(err, ErrTooManyReplicas) {
+		t.Errorf("GetNServers(%q) want %v, got %v", "node-a", ErrTooManyReplicas, err)
+	}
+}
+func TestGetNServersFirstMatchesGetServer(t *testing.T) {
+	t.Parallel()
+
+	ring, _ := newTestRing(t, testNumServers)
+	key := "some-key"
+
+	servers, err := ring.GetNServers(key, testNumServers)
+	if err != nil {
+		t.Fatalf("err GetNServers(%q) got %v", key, err)
+	}
+
+	expectedServer, err := ring.GetServer(key)
+	if err != nil {
+		t.Fatalf("err GetServer(%q) got %v", key, err)
+	}
+
+	if servers[0] != expectedServer {
+		t.Errorf("GetNServers(%q) got %v(first element), want %v", key, servers[0], expectedServer)
+	}
+}
+
 // Helper function to spread testNumKeys on a given Ring
 func keySpread(t *testing.T, ring *Ring, keys []string) map[string]int {
 	t.Helper()
@@ -191,8 +272,10 @@ func newTestRing(t *testing.T, numServers int) (*Ring, []string) {
 	servers := make([]string, 0, numServers)
 	for range numServers {
 		s := uuid.New().String()
+		if err := ring.AddServer(s); err != nil {
+			t.Fatalf("AddServer(%q): %v", s, err)
+		}
 		servers = append(servers, s)
-		ring.AddServer(s)
 	}
 	return ring, servers
 }
