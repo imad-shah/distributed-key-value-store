@@ -1,5 +1,7 @@
 ## 001: Virtual Nodes and FNV Prefix Bias
 
+**Note:** These tests use 150 virtual nodes, but we've switched to 256 for the forseeable future. 
+
 **Goal:** Implement consistent hashing for key partitioning
 
 **Naive implementation:**
