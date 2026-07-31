@@ -74,11 +74,11 @@ func handleCommand(cmd Command, node *cluster.Node, kv *store.Store, pool *Pool)
 	}
 
 	switch cmd.Type {
-	case CmdSet:
-		return coordinateSet(cmd, node, kv, pool)
-
 	case CmdGet:
 		return coordinateGet(cmd, node, kv, pool)
+
+	case CmdSet:
+		return coordinateSet(cmd, node, kv, pool)
 
 	case CmdDelete:
 		return coordinateDelete(cmd, node, kv, pool)
@@ -133,6 +133,10 @@ func coordinateGet(cmd Command, node *cluster.Node, kv *store.Store, pool *Pool)
 		return fmt.Sprintf("error read quorum not reached: got %d responses, wanted 2", len(responses))
 	}
 
+	//TODO: only reports an error if the values disagree, ie:
+	// node-b -> bar, node-c -> baz
+	// instead, should use timestamps to correct the stale value,
+	// then have some kind of updating logic 
 	if responses[0] != responses[1] {
 		return "error replicas returned conflicting values"
 	}
