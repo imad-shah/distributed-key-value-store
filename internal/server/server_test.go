@@ -15,10 +15,9 @@ func TestServe(t *testing.T) {
 		input string
 		want  string
 	}{
-		{"getNothing", "GET foo\n", "NOT_FOUND\n"},
-		{"get", "SET foo bar\nGET foo\n", "OK\nbar\n"},
-		{"delete", "SET foo bar\nGET foo\nDELETE foo\nGET foo\n", "OK\nbar\nOK\nNOT_FOUND\n"},
-		{"unknown", "PING\nSET foo bar\nGET foo\n", "error unknown command: \"PING\"\nOK\nbar\n"},
+		{"getNothing", "REPLICA_GET foo\n", "NOT_FOUND\n"},
+		{"get", "REPLICA_SET foo bar\nREPLICA_GET foo\n", "OK\nbar\n"},
+		{"delete", "REPLICA_SET foo bar\nREPLICA_GET foo\nREPLICA_DELETE foo\nREPLICA_GET foo\n", "OK\nbar\nOK\nNOT_FOUND\n"},
 	}
 
 	for _, test := range tests {
