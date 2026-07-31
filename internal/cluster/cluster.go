@@ -17,8 +17,8 @@ type Node struct {
 }
 
 type Replica struct {
-	ID string
-	Addr string
+	ID     string
+	Addr   string
 	IsSelf bool
 }
 
@@ -50,7 +50,7 @@ func New(id, addr, peersRaw string, ring *hashring.Ring) (*Node, error) {
 		ring:     ring,
 	}, nil
 }
- 
+
 func (node *Node) OwnerAddr(key string) (addr string, isSelf bool, err error) {
 	ownerId, err := node.ring.GetServer(key)
 	if err != nil {
@@ -77,8 +77,8 @@ func (node *Node) Replicas(key string, n int) ([]Replica, error) {
 		isSelf := node.id == server
 
 		res = append(res, Replica{
-			ID: server,
-			Addr: addr,
+			ID:     server,
+			Addr:   addr,
 			IsSelf: isSelf,
 		})
 	}
