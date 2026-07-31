@@ -7,32 +7,37 @@ import (
 // Store is a thread-safe, in-memory, key-value store
 type Store struct {
 	mu   sync.RWMutex
-	data map[string]string
+	data map[string]VersionedValue
 }
 
 func New() *Store {
 	return &Store{
-		data: make(map[string]string),
+		data: make(map[string]VersionedValue),
 	}
 }
 
-func (s *Store) Get(key string) (string, bool) {
+func (s *Store) Get(key string) (VersionedValue, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
 	val, ok := s.data[key]
 	return val, ok
 }
 
-func (s *Store) Set(key, value string) {
+func (s *Store) Put(key string, incoming VersionedValue) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.data[key] = value
-}
 
-func (s *Store) Delete(key string) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	_, ok := s.data[key]
-	delete(s.data, key)
-	return ok
+	cur, ok := s.data[key]
+
+	if !ok || incoming.Version.After(cur.Version) {
+		s.data[key] = incoming
+		return true
+	}
+
+	if incoming.Version.Equal(cur.Version) {
+		return incoming == cur
+	}
+
+	return false
 }
