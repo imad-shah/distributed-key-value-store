@@ -80,6 +80,10 @@ Terminal 2:
 ```bash
 go run ./cmd/kvstore/ --id node-b --addr :8081 --peers node-a=:8080,node-c=:8082
 ```
+Terminal 3:
+```bash
+go run ./cmd/kvstore/ --id node-c --addr :8082 --peers node-a=:8080,node-b=:8081
+```
 
 Terminal 3:
 ```bash
