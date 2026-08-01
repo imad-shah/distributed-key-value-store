@@ -1,4 +1,4 @@
-# 002: Connection pool for forwarding
+# 002: Connection Pool for Forwarding
 
 ## The Problem
 

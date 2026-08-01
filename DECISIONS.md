@@ -7,6 +7,8 @@ Each entry captures context, alternatives considered, and thinking process.
 
 - [001: Virtual nodes and FNV prefix bias](decisions/001-virtual-nodes.md)
 - [002: Connection pool for forwarding](decisions/002-connection-pool.md)
+- [003: Quorum semantics](decisions/003-quorum-semantics.md)
+- [004: Replica protocol trust boundary](decisions/004-replica-protocol-boundary.md)
 
 ## Format
 
