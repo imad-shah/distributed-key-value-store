@@ -12,28 +12,143 @@ func TestParse(t *testing.T) {
 		want    Command
 		wantErr error
 	}{
-		{"get", "GET foo", Command{Type: CmdGet, Key: "foo"}, nil},
-		{"getWithSpace", "GET  foo", Command{Type: CmdGet, Key: "foo"}, nil},
-		{"set", "SET foo bar", Command{Type: CmdSet, Key: "foo", Value: "bar"}, nil},
-		{"setInternalSpaces", "SET foo bar  baz", Command{Type: CmdSet, Key: "foo", Value: "bar  baz"}, nil},
-		{"setMultipleValues", "SET foo bar baz", Command{Type: CmdSet, Key: "foo", Value: "bar baz"}, nil},
-		// also testing lowercase commands
-		{"delete", "delete foo", Command{Type: CmdDelete, Key: "foo"}, nil},
-		{"deleteExtraArg", "DELETE foo bar", Command{}, ErrWrongNumArgs},
-		{"empty", "", Command{}, ErrEmptyCommand},
-		{"unknown", "PING foo", Command{}, ErrUnknownCommand},
-		{"wrongNumArgsTooLittle", "GET", Command{}, ErrWrongNumArgs},
-		{"wrongNumArgsTooBig", "GET foo bar", Command{}, ErrWrongNumArgs},
-		{"replicaGet", "REPLICA_GET foo", Command{Type: CmdReplicaGet, Key: "foo"}, nil},
-		{"replicaGetMissingKey", "REPLICA_GET", Command{}, ErrWrongNumArgs},
-		{"replicaGetExtraArg", "REPLICA_GET foo bar", Command{}, ErrWrongNumArgs},
-		{"replicaSet", "REPLICA_SET foo bar", Command{Type: CmdReplicaSet, Key: "foo", Value: "bar"}, nil},
-		{"replicaSetMultipleValues", "REPLICA_SET foo bar baz", Command{Type: CmdReplicaSet, Key: "foo", Value: "bar baz"}, nil},
-		{"replicaSetMissingValue", "REPLICA_SET foo", Command{}, ErrWrongNumArgs},
-		{"replicaDelete", "REPLICA_DELETE foo", Command{Type: CmdReplicaDelete, Key: "foo"}, nil},
-		{"replicaDeleteMissingKey", "REPLICA_DELETE", Command{}, ErrWrongNumArgs},
+		{
+			name:  "get",
+			input: "GET foo",
+			want: Command{
+				Type: CmdGet,
+				Key:  "foo",
+			},
+		},
+		{
+			name:  "getWithSpace",
+			input: "GET  foo",
+			want: Command{
+				Type: CmdGet,
+				Key:  "foo",
+			},
+		},
+		{
+			name:  "set",
+			input: "SET foo bar",
+			want: Command{
+				Type:  CmdSet,
+				Key:   "foo",
+				Value: "bar",
+			},
+		},
+		{
+			name:  "setInternalSpaces",
+			input: "SET foo bar  baz",
+			want: Command{
+				Type:  CmdSet,
+				Key:   "foo",
+				Value: "bar  baz",
+			},
+		},
+		{
+			name:  "setMultipleValues",
+			input: "SET foo bar baz",
+			want: Command{
+				Type:  CmdSet,
+				Key:   "foo",
+				Value: "bar baz",
+			},
+		},
+		{
+			name:  "delete",
+			input: "delete foo",
+			want: Command{
+				Type: CmdDelete,
+				Key:  "foo",
+			},
+		},
+		{
+			name:    "deleteExtraArg",
+			input:   "DELETE foo bar",
+			wantErr: ErrWrongNumArgs,
+		},
+		{
+			name:    "empty",
+			input:   "",
+			wantErr: ErrEmptyCommand,
+		},
+		{
+			name:    "unknown",
+			input:   "PING foo",
+			wantErr: ErrUnknownCommand,
+		},
+		{
+			name:    "wrongNumArgsTooLittle",
+			input:   "GET",
+			wantErr: ErrWrongNumArgs,
+		},
+		{
+			name:    "wrongNumArgsTooBig",
+			input:   "GET foo bar",
+			wantErr: ErrWrongNumArgs,
+		},
+		{
+			name:  "replicaGet",
+			input: "REPLICA_GET foo",
+			want: Command{
+				Type: CmdReplicaGet,
+				Key:  "foo",
+			},
+		},
+		{
+			name:    "replicaGetMissingKey",
+			input:   "REPLICA_GET",
+			wantErr: ErrWrongNumArgs,
+		},
+		{
+			name:    "replicaGetExtraArg",
+			input:   "REPLICA_GET foo bar",
+			wantErr: ErrWrongNumArgs,
+		},
+		{
+			name:  "replicaSet",
+			input: "REPLICA_SET foo 500 node-a bar",
+			want: Command{
+				Type:      CmdReplicaSet,
+				Key:       "foo",
+				Value:     "bar",
+				Timestamp: 500,
+				NodeID:    "node-a",
+			},
+		},
+		{
+			name:  "replicaSetMultipleValues",
+			input: "REPLICA_SET foo 500 node-a bar baz",
+			want: Command{
+				Type:      CmdReplicaSet,
+				Key:       "foo",
+				Value:     "bar baz",
+				Timestamp: 500,
+				NodeID:    "node-a",
+			},
+		},
+		{
+			name:    "replicaSetMissingMetadata",
+			input:   "REPLICA_SET foo bar",
+			wantErr: ErrWrongNumArgs,
+		},
+		{
+			name:  "replicaDelete",
+			input: "REPLICA_DELETE foo 600 node-a",
+			want: Command{
+				Type:      CmdReplicaDelete,
+				Key:       "foo",
+				Timestamp: 600,
+				NodeID:    "node-a",
+			},
+		},
+		{
+			name:    "replicaDeleteMissingMetadata",
+			input:   "REPLICA_DELETE foo",
+			wantErr: ErrWrongNumArgs,
+		},
 	}
-
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			got, err := Parse(test.input)

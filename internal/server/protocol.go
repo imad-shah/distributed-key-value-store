@@ -3,15 +3,18 @@ package server
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 )
 
 type CommandType string
 
 type Command struct {
-	Type  CommandType
-	Key   string
-	Value string
+	Type      CommandType
+	Key       string
+	Value     string
+	Timestamp int64
+	NodeID    string
 }
 
 var (
@@ -68,19 +71,82 @@ func Parse(raw string) (Command, error) {
 	cmdType := parseCommandType(cmdWord)
 
 	switch cmdType {
-	case CmdGet, CmdReplicaGet, CmdDelete, CmdReplicaDelete:
+	case CmdGet, CmdReplicaGet, CmdDelete:
 		key, extra := splitFirst(rest)
 		if key == "" || extra != "" {
 			return Command{}, fmt.Errorf("%w for %s", ErrWrongNumArgs, cmdWord)
 		}
 		return Command{Type: cmdType, Key: key}, nil
 
-	case CmdSet, CmdReplicaSet:
-		key, value := splitFirst(rest)
-		if key == "" || value == "" {
+	case CmdSet:
+		key, val := splitFirst(rest)
+		if key == "" || val == "" {
 			return Command{}, fmt.Errorf("%w for %s", ErrWrongNumArgs, cmdWord)
 		}
-		return Command{Type: cmdType, Key: key, Value: value}, nil
+		return Command{
+			Type:  cmdType,
+			Key:   key,
+			Value: val,
+		}, nil
+
+	case CmdReplicaSet:
+		key, rest := splitFirst(rest)
+		timestampRaw, rest := splitFirst(rest)
+		nodeID, value := splitFirst(rest)
+
+		if key == "" || timestampRaw == "" || nodeID == "" || value == "" {
+			return Command{}, fmt.Errorf("%w for %s", ErrWrongNumArgs, cmdWord)
+		}
+
+		timestamp, err := strconv.ParseInt(timestampRaw, 10, 64)
+		if err != nil {
+			return Command{}, fmt.Errorf(
+				"invalid timestamp %q for %s: %w",
+				timestampRaw,
+				cmdWord,
+				err,
+			)
+		}
+
+		return Command{
+			Type:      cmdType,
+			Key:       key,
+			Value:     value,
+			Timestamp: timestamp,
+			NodeID:    nodeID,
+		}, nil
+	case CmdReplicaDelete:
+		key, rest := splitFirst(rest)
+		timestampRaw, rest := splitFirst(rest)
+		nodeID, extra := splitFirst(rest)
+
+		if key == "" ||
+			timestampRaw == "" ||
+			nodeID == "" ||
+			extra != "" {
+			return Command{}, fmt.Errorf(
+				"%w for %s",
+				ErrWrongNumArgs,
+				cmdWord,
+			)
+		}
+
+		timestamp, err := strconv.ParseInt(timestampRaw, 10, 64)
+		if err != nil {
+			return Command{}, fmt.Errorf(
+				"invalid timestamp %q for %s: %w",
+				timestampRaw,
+				cmdWord,
+				err,
+			)
+		}
+
+		return Command{
+			Type:      cmdType,
+			Key:       key,
+			Timestamp: timestamp,
+			NodeID:    nodeID,
+		}, nil
 
 	default:
 		return Command{}, fmt.Errorf("%w: %q", ErrUnknownCommand, cmdWord)
