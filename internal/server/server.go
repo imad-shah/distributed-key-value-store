@@ -20,68 +20,14 @@ const (
 	readQuorum        = 2
 	writeQuorum       = 2
 )
-
-/*
-outcome of reading from 1 replica
-a replica read can result in 3 states
-1. Missing key
-2. Live value
-3. Tombstone
-
-Missing Key -
-
-	replicaReadResult{
-		Found: false,
-	}
-
-Live Value-
-
-	replicaReadResult{
-		Value: store.VersionedValue{
-			Value: "bar",
-			Version: store.Version{
-				Timestamp: 500,
-				NodeID:    "node-a",
-			},
-			Tombstone: false,
-		},
-		Found: true,
-	}
-
-Tombstone-
-
-	replicaReadResult{
-		Value: store.VersionedValue{
-			Version: store.Version{
-				Timestamp: 700,
-				NodeID:    "node-b",
-			},
-			Tombstone: true,
-		},
-		Found: true,
-	}
-*/
+// replicaReadResult is one successful replica read
+// Found=false means the replica has no record, ie a tombstone has Found=true.
 type replicaReadResult struct {
 	Value store.VersionedValue
 	Found bool
 }
 
-/*
-answers 3 questions:
-Which replica responded?
-What result did it return?
-Did the operation fail?
-
-we need this because when we use goroutines, the channel needs one object with everything associated with that response
-replica identity will also be needed for future repairs. example:
-node-a: bar @ 500
-node-b: baz @ 700    <- winner
-node-c: timeout
-
-node-a is stale and needs repair
-node-b already has the winner
-node-c did not respond
-*/
+// replicaReadResponse connects a read result with its replica
 type replicaReadResponse struct {
 	Replica cluster.Replica
 	Result  replicaReadResult
@@ -178,7 +124,7 @@ func coordinateSet(cmd Command, node *cluster.Node, kv *store.Store, pool *Pool)
 		return "OK"
 	}
 
-	return fmt.Sprintf("error write quorum not reached: got %d acks, wanted 2", successCount)
+	return fmt.Sprintf("error write quorum not reached: got %d acks, wanted %d", successCount, writeQuorum)
 }
 
 func coordinateGet(cmd Command, node *cluster.Node, kv *store.Store, pool *Pool) string {
@@ -202,6 +148,14 @@ func coordinateGet(cmd Command, node *cluster.Node, kv *store.Store, pool *Pool)
 		if len(responses) == readQuorum {
 			break
 		}
+	}
+
+	if len(responses) < readQuorum {
+		return fmt.Sprintf(
+			"error read quorum not reached: got %d responses, want %d",
+			len(responses),
+			readQuorum,
+		)
 	}
 
 	// iterate through the replica responses, choose the newest one
@@ -254,7 +208,7 @@ func coordinateDelete(cmd Command, node *cluster.Node, kv *store.Store, pool *Po
 		return "OK"
 	}
 
-	return fmt.Sprintf("error delete quorum not reached: got %d acks, wanted 2", successCount)
+	return fmt.Sprintf("error delete quorum not reached: got %d acks, wanted %d", successCount, writeQuorum)
 }
 
 func executeLocal(cmd Command, kv *store.Store) string {
