@@ -25,7 +25,7 @@ The current quorum configuration is:
     read quorum (R)        = 2
     write quorum (W)       = 2
 
-guarentees: R + W > N
+**Guarantees: R + W > N**
 
 ## Design
 
@@ -58,63 +58,70 @@ timestamp.
 
 The server accepts each TCP connection in its own goroutine and speaks a
 simple line-based client protocol:
-
+```
 SET key value    -> OK
 GET key          -> value | NOT_FOUND
 DELETE key       -> OK
 <bad input>      -> error <reason>
+```
 
 Client commands do not contain replication metadata. The node receiving the
 request creates the version and then sends internal commands to the replicas:
 
+```
 REPLICA_SET key timestamp nodeID value
 REPLICA_GET key
 REPLICA_DELETE key timestamp nodeID
+```
 
 Internal GET responses include one of these three stored versions:
-
+```
 VALUE timestamp nodeID value
 TOMBSTONE timestamp nodeID
 NOT_FOUND
+```
 
-**Writes**
+## Writes
 
 For a SET request, the coordinator creates one `VersionedValue` and sends the
 same record to all 3 replicas.
 
 The write succeeds after at least 2 replicas acknowledge it.
-
+```
 node-b -> foo = bar @ time X
 node-b -> foo = bar @ time X
 node-c -> foo = bar @ time X
+```
 
 All replicas receive the same timestamp and coordinator node ID. 
 
-**Reads**
+## Reads
 
 For a GET request, the coordinator reads from replicas until it receives 2
 successful responses.
 
 Each replica returns its local value and version. The coordinator compares the
 versions, chooses the newest record, and returns that to the client.
-
+```
 node-a -> bar @ time 100
 node-b -> baz @ time 200
+```
 
 GET foo -> baz
 
 Note: A missing value and a tombstone are different 
-
+```
 missing key:
     no record exists
 
 tombstone:
     a versioned delete record exists
+```
 
 while both return NOT_FOUND to client, the tombstone prevents an
 older value from being restored later (zombie data).
 
-**Deletes**
+## Deletes
 
 DELETE does not physically remove the key from the store.
 
@@ -122,15 +129,16 @@ The coordinator creates a new versioned tombstone and replicates it using the
 same write quorum as SET.
 
 DELETE foo
-
+```
 node-a -> tombstone @ version X
 node-b -> tombstone @ version X
 node-c -> tombstone @ version X
+```
 
 Keeping the tombstone allows replicas to distinguish an intentional delete from
 a node that does not have the key.
 
-**Partitioning**
+## Partitioning
 
 Keys are assigned to nodes using consistent hashing with virtual nodes.
 
@@ -144,7 +152,7 @@ Consistent hashing keeps rebalancing proportional. Removing one of N nodes
 remaps roughly 1/N of the keys instead of remapping almost everything as
 `hash(key) % N` would.
 
-**Connection Pooling**
+## Connection Pooling
 
 Nodes reuse TCP connections when communicating with peers.
 
