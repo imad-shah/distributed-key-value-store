@@ -17,15 +17,26 @@ const (
 func main() {
 	// TCP server entry point
 	id := flag.String("id", "", "this node's ID")
-	addr := flag.String("addr", ":8080", "address to listen on")
-	peersRaw := flag.String("peers", "", "comma-separated pairs of id=addr")
+	configPath := flag.String(
+		"config",
+		"./config/cluster.yaml",
+		"path to cluster configuration",
+	)
 	flag.Parse()
+	if *id == "" {
+		log.Fatal("node id is required")
+	}
 
-	node, err := cluster.New(*id, *addr, *peersRaw, hashring.New(vNodes))
+	cfg, err := cluster.LoadConfig(*configPath)
+	if err != nil {
+		log.Fatalf("load cluster config: %v", err)
+	}
+
+	node, err := cluster.NewNodeFromConfig(*id, cfg, hashring.New(vNodes))
 	if err != nil {
 		log.Fatalf("error creating cluster: %v", err)
 	}
 	kv := store.New()
 	pool := server.NewPool(8)
-	server.StartServer(*addr, node, kv, pool)
+	server.StartServer(cfg.ListenAddress, node, kv, pool)
 }

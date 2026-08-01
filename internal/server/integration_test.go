@@ -17,10 +17,23 @@ func TestFullLoopReplicaCommands(t *testing.T) {
 	// Create a listener on any port
 	listener, addr := createListener(t)
 	// Run accept loop on listener
-	node, err := cluster.New("test-node", addr, "", hashring.New(256))
-	if err != nil {
-		t.Fatalf("cluster.New: %v", err)
+	ring := hashring.New(256)
+	cfg := cluster.Config{
+		ListenAddress: addr,
+		Nodes: []cluster.NodeConfig{
+			{ID: "test-node", Address: addr},
+		},
 	}
+	node, err := cluster.NewNodeFromConfig(
+		"test-node",
+		cfg,
+		ring,
+	)
+
+	if err != nil {
+		t.Fatalf("error creating node from config: %v", err)
+	}
+
 	go acceptLoop(listener, node, store.New(), NewPool(8))
 
 	// Dial in as client
@@ -51,20 +64,27 @@ func TestQuorumReplication(t *testing.T) {
 	listenerA, addrA := createListener(t)
 	listenerB, addrB := createListener(t)
 	listenerC, addrC := createListener(t)
-
-	nodeA, err := cluster.New("node-a", addrA, fmt.Sprintf("node-b=%s,node-c=%s", addrB, addrC), hashring.New(256))
+	cfg := cluster.Config{
+		ListenAddress: ":0",
+		Nodes: []cluster.NodeConfig{
+			{ID: "node-a", Address: addrA},
+			{ID: "node-b", Address: addrB},
+			{ID: "node-c", Address: addrC},
+		},
+	}
+	nodeA, err := cluster.NewNodeFromConfig("node-a", cfg, hashring.New(256))
 	if err != nil {
-		t.Fatalf("cluster.New: %v", err)
+		t.Fatalf("create node-a: %v", err)
 	}
 
-	nodeB, err := cluster.New("node-b", addrB, fmt.Sprintf("node-a=%s,node-c=%s", addrA, addrC), hashring.New(256))
+	nodeB, err := cluster.NewNodeFromConfig("node-b", cfg, hashring.New(256))
 	if err != nil {
-		t.Fatalf("cluster.New: %v", err)
+		t.Fatalf("create node-b: %v", err)
 	}
 
-	nodeC, err := cluster.New("node-c", addrC, fmt.Sprintf("node-a=%s,node-b=%s", addrA, addrB), hashring.New(256))
+	nodeC, err := cluster.NewNodeFromConfig("node-c", cfg, hashring.New(256))
 	if err != nil {
-		t.Fatalf("cluster.New: %v", err)
+		t.Fatalf("create node-c: %v", err)
 	}
 
 	storeA := store.New()

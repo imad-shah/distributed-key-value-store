@@ -47,12 +47,18 @@ func TestServe(t *testing.T) {
 			input := strings.NewReader(test.input)
 			var output bytes.Buffer
 
-			node, _ := cluster.New(
-				"test-node",
-				":0",
-				"",
-				hashring.New(256),
-			)
+			ring := hashring.New(256)
+			cfg := cluster.Config{
+				ListenAddress: ":8080",
+				Nodes: []cluster.NodeConfig{
+					{ID: "test-node", Address: "test-node:8080"},
+				},
+			}
+
+			node, err := cluster.NewNodeFromConfig("test-node", cfg, ring)
+			if err != nil {
+				t.Fatalf("error creating node from config: %v", err)
+			}
 
 			serve(input, &output, node, kv, pool)
 

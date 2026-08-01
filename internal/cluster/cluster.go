@@ -2,8 +2,6 @@ package cluster
 
 import (
 	"fmt"
-	"log"
-	"strings"
 
 	"github.com/imad-shah/distributed-key-value-store/internal/hashring"
 )
@@ -22,33 +20,36 @@ type Replica struct {
 	IsSelf bool
 }
 
-func New(id, addr, peersRaw string, ring *hashring.Ring) (*Node, error) {
-	peers, err := parsePeers(peersRaw)
-	if err != nil {
-		return nil, err
-	}
+func NewNodeFromConfig(id string, cfg Config, ring *hashring.Ring) (*Node, error) {
+	found := false
+	members := make(map[string]struct{}, len(cfg.Nodes))
+	addrBook := make(map[string]string, len(cfg.Nodes))
 
-	members := map[string]struct{}{id: {}}  // add self
-	addrBook := map[string]string{id: addr} // add self
+	for _, node := range cfg.Nodes {
+		members[node.ID] = struct{}{}
+		addrBook[node.ID] = node.Address
 
-	for peerId, peerAddr := range peers {
-		members[peerId] = struct{}{}
-		addrBook[peerId] = peerAddr
-	}
-
-	for memberId := range members {
-		if err := ring.AddServer(memberId); err != nil {
-			return nil, fmt.Errorf("add cluster member %q to ring: %w", memberId, err)
+		if node.ID == id {
+			found = true
 		}
+
+		if err := ring.AddServer(node.ID); err != nil {
+			return nil, fmt.Errorf("add cluster member %q to ring: %w", node.ID, err)
+		}
+
 	}
-	log.Printf("[%v] sees members %v", id, peers)
+	if !found {
+		return nil, fmt.Errorf("%w: %q", ErrNodeIDNotFound, id)
+	}
+
 	return &Node{
 		id:       id,
-		addr:     addr,
+		addr:     cfg.ListenAddress,
 		members:  members,
 		addrBook: addrBook,
 		ring:     ring,
 	}, nil
+
 }
 
 func (node *Node) OwnerAddr(key string) (addr string, isSelf bool, err error) {
@@ -87,22 +88,4 @@ func (node *Node) Replicas(key string, n int) ([]Replica, error) {
 
 func (node *Node) ID() string {
 	return node.id
-}
-
-func parsePeers(raw string) (map[string]string, error) {
-	peerMap := make(map[string]string)
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return peerMap, nil
-	}
-
-	for _, entry := range strings.Split(raw, ",") {
-		entry = strings.TrimSpace(entry)
-		id, addr, found := strings.Cut(entry, "=")
-		if !found || id == "" || addr == "" {
-			return nil, fmt.Errorf("malformed peer %q, want id=addr", entry)
-		}
-		peerMap[id] = addr
-	}
-	return peerMap, nil
 }
