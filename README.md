@@ -1,37 +1,166 @@
 # distributed-key-value-store
 
 An in-memory key-value store in Go, served over TCP, being built toward a
-distributed (partitioned, replicated) system.
+distributed, partitioned, and replicated system.
 
 ## Current Progress
+The store currently supports:
 
-Single-node server works. A TCP server accepts concurrent clients and
-serves GET/SET/DELETE against a shared in-memory store.
+- concurrent TCP clients
+- GET, SET, and DELETE commands
+- consistent hashing with virtual nodes
+- replication across 3 nodes
+- read and write quorums
+- versioned values
+- tombstones for deletes
+- connection pooling between nodes
+
+A client can connect to any node. That node acts as the coordinator for the
+request, finds the replicas responsible for the key, and communicates with
+the other nodes when needed.
+
+The current quorum configuration is:
+
+    replication factor (N) = 3
+    read quorum (R)        = 2
+    write quorum (W)       = 2
+
+guarentees: R + W > N
 
 ## Design
 
-The store is an in-memory `map[string]string` guarded by a `sync.RWMutex`,
-shared across all client connections. The server accepts each connection
-in its own goroutine and speaks a simple line-based text protocol:
+The store is an in-memory `map[string]VersionedValue` guarded by a `sync.RWMutex`,
+shared across all client connections. 
 
-    SET key value    -> OK
-    GET key          -> value | NOT_FOUND
-    DELETE key       -> OK | NOT_FOUND
-    <bad input>      -> error <reason>
+Each stored record contains:
 
-Keys will be partitioned across nodes using consistent hashing with
-virtual nodes, each node sits on a 64-bit hash ring at 256 positions, and
-a key routes to the first node position at or after the key's hash. 
-This keeps rebalancing proportional, removing one of N nodes remaps roughly
-1/N of keys and leaves the rest in place, rather than almost 
-everything as `hash % N` would.
+```go
+type VersionedValue struct {
+    Value     string
+    Version   Version
+    Tombstone bool
+}
+```
+
+A version contains a timestamp and the ID of the node that coordinated the
+write:
+
+```go
+type Version struct {
+    Timestamp int64
+    NodeID    string
+}
+```
+
+The timestamp is used to choose the newest value during quorum reads. The node
+ID is used as a deterministic tie-breaker when two versions have the same
+timestamp.
+
+The server accepts each TCP connection in its own goroutine and speaks a
+simple line-based client protocol:
+
+SET key value    -> OK
+GET key          -> value | NOT_FOUND
+DELETE key       -> OK
+<bad input>      -> error <reason>
+
+Client commands do not contain replication metadata. The node receiving the
+request creates the version and then sends internal commands to the replicas:
+
+REPLICA_SET key timestamp nodeID value
+REPLICA_GET key
+REPLICA_DELETE key timestamp nodeID
+
+Internal GET responses include one of these three stored versions:
+
+VALUE timestamp nodeID value
+TOMBSTONE timestamp nodeID
+NOT_FOUND
+
+**Writes**
+
+For a SET request, the coordinator creates one `VersionedValue` and sends the
+same record to all 3 replicas.
+
+The write succeeds after at least 2 replicas acknowledge it.
+
+node-b -> foo = bar @ time X
+node-b -> foo = bar @ time X
+node-c -> foo = bar @ time X
+
+All replicas receive the same timestamp and coordinator node ID. 
+
+**Reads**
+
+For a GET request, the coordinator reads from replicas until it receives 2
+successful responses.
+
+Each replica returns its local value and version. The coordinator compares the
+versions, chooses the newest record, and returns that to the client.
+
+node-a -> bar @ time 100
+node-b -> baz @ time 200
+
+GET foo -> baz
+
+Note: A missing value and a tombstone are different 
+
+missing key:
+    no record exists
+
+tombstone:
+    a versioned delete record exists
+
+while both return NOT_FOUND to client, the tombstone prevents an
+older value from being restored later (zombie data).
+
+**Deletes**
+
+DELETE does not physically remove the key from the store.
+
+The coordinator creates a new versioned tombstone and replicates it using the
+same write quorum as SET.
+
+DELETE foo
+
+node-a -> tombstone @ version X
+node-b -> tombstone @ version X
+node-c -> tombstone @ version X
+
+Keeping the tombstone allows replicas to distinguish an intentional delete from
+a node that does not have the key.
+
+**Partitioning**
+
+Keys are assigned to nodes using consistent hashing with virtual nodes.
+
+Each physical node is placed on the 64-bit hash ring at 256 virtual positions.
+A key is assigned to the first node found clockwise from the key's hash.
+
+For replication, the key is assigned to the first 3 distinct physical nodes
+found clockwise on the ring.
+
+Consistent hashing keeps rebalancing proportional. Removing one of N nodes
+remaps roughly 1/N of the keys instead of remapping almost everything as
+`hash(key) % N` would.
+
+**Connection Pooling**
+
+Nodes reuse TCP connections when communicating with peers.
+
+The pool keeps a bounded list of idle connections for each peer. A request
+borrows one connection, sends one command, reads one response, and returns the
+connection to the pool.
+
+If no idle connection is available, the node opens a new one.
 
 ## Layout
 
     cmd/kvstore/         server entry point
 
-    internal/server/     TCP server, protocol parser, request dispatch
-    internal/store/      in-memory key-value store
+    internal/cluster/    cluster membership and replica lookup
+    internal/server/     TCP server, protocol parser, quorum coordination
+    internal/store/      versioned in-memory key-value store
     internal/hashring/   consistent hashing ring
 
     benchmarks/          distribution measurement script
@@ -42,10 +171,10 @@ everything as `hash % N` would.
 - [001: Virtual nodes and FNV-1a prefix ordering](decisions/001-virtual-nodes.md)
 - [002: Connection pool for forwarding](decisions/002-connection-pool.md)
 
-## Running the Server
+## Running a Single Server
 
 ```bash
-go run ./cmd/kvstore/
+go run ./cmd/kvstore/ --id node-a --addr :8080
 ```
 
 Then connect with any TCP client:
@@ -54,7 +183,12 @@ Then connect with any TCP client:
 nc localhost 8080
 SET foo bar
 GET foo
+DELETE foo
+GET foo
 ```
+
+Note: You must change the configuration. The default replication factor is 3,
+and with a single-node server, you will get `err finding replicas: hashring: too many replicas, not enough servers`. Therefore, quorum operations should normally be tested using at least a 3-node cluster.
 
 ## Running the tests
 
@@ -70,7 +204,7 @@ go test -v ./internal/hashring/    # includes rebalance move percentages
 go run ./benchmarks/distribution.go
 ```
 
-## Testing multiple servers with pools
+## Testing a Three-Node Cluster
 
 Terminal 1:
 ```bash
@@ -87,14 +221,20 @@ go run ./cmd/kvstore/ --id node-c --addr :8082 --peers node-a=:8080,node-b=:8081
 
 Terminal 3:
 ```bash
-nc localhost 8080 # only connected to node-a ever
-SET foo bar # routes to node-a (local)
-GET foo # returns bar | pulls from node-a
-SET bar baz # routes to node-b (forwarded)
-GET bar # returns baz | pulls from node-b 
+nc localhost 8080
+SET foo bar
+GET foo
+DELETE foo
+GET foo
 ```
-Even though we are connected to **only** node-a (8080), we still are able to: \
-`set` 'bar' -> 'baz'\
-`get` 'bar' \
-and which can only happen on node-b, proving that node-a is able to forward the request to node-b
-and return the response
+
+The client is connected only to node-a.
+
+For `SET foo bar`, node-a acts as the coordinator. It finds the 3 replicas for
+`foo`, writes the value locally if node-a is one of them, and sends
+`REPLICA_SET` commands to the remote replicas.
+
+The write returns `OK` after at least 2 replicas acknowledge it.
+
+A later `GET foo` reads from 2 replicas, compares their versions, and returns
+the newest value.
