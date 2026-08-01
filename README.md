@@ -74,7 +74,7 @@ REPLICA_GET key
 REPLICA_DELETE key timestamp nodeID
 ```
 
-Internal GET responses include one of these three stored versions:
+Internal `GET` responses include one of these three stored versions:
 ```
 VALUE timestamp nodeID value
 TOMBSTONE timestamp nodeID
@@ -83,7 +83,7 @@ NOT_FOUND
 
 ## Writes
 
-For a SET request, the coordinator creates one `VersionedValue` and sends the
+For a `SET` request, the coordinator creates one `VersionedValue` and sends the
 same record to all 3 replicas.
 
 The write succeeds after at least 2 replicas acknowledge it.
@@ -97,7 +97,7 @@ All replicas receive the same timestamp and coordinator node ID.
 
 ## Reads
 
-For a GET request, the coordinator reads from replicas until it receives 2
+For a `GET` request, the coordinator reads from replicas until it receives 2
 successful responses.
 
 Each replica returns its local value and version. The coordinator compares the
@@ -107,7 +107,7 @@ node-a -> bar @ time 100
 node-b -> baz @ time 200
 ```
 
-GET foo -> baz
+`GET foo` returns `baz` because it has the more recent time
 
 Note: A missing value and a tombstone are different 
 ```
@@ -118,17 +118,17 @@ tombstone:
     a versioned delete record exists
 ```
 
-while both return NOT_FOUND to client, the tombstone prevents an
+while both return `NOT_FOUND` to client, the tombstone prevents an
 older value from being restored later (zombie data).
 
 ## Deletes
 
-DELETE does not physically remove the key from the store.
+`DELETE` does not physically remove the key from the store.
 
 The coordinator creates a new versioned tombstone and replicates it using the
-same write quorum as SET.
+same write quorum as `SET`.
 
-DELETE foo
+`DELETE foo`
 ```
 node-a -> tombstone @ version X
 node-b -> tombstone @ version X
