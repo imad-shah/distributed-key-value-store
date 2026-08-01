@@ -85,6 +85,10 @@ func (node *Node) Replicas(key string, n int) ([]Replica, error) {
 	return res, nil
 }
 
+func (node *Node) ID() string {
+	return node.id
+}
+
 func parsePeers(raw string) (map[string]string, error) {
 	peerMap := make(map[string]string)
 	raw = strings.TrimSpace(raw)
