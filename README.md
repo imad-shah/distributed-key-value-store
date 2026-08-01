@@ -88,7 +88,7 @@ same record to all 3 replicas.
 
 The write succeeds after at least 2 replicas acknowledge it.
 ```
-node-b -> foo = bar @ time X
+node-a -> foo = bar @ time X
 node-b -> foo = bar @ time X
 node-c -> foo = bar @ time X
 ```
@@ -166,6 +166,9 @@ If no idle connection is available, the node opens a new one.
 
     cmd/kvstore/         server entry point
 
+    config/              shared cluster configuration
+    docker/              Dockerfile and Compose configuration
+
     internal/cluster/    cluster membership and replica lookup
     internal/server/     TCP server, protocol parser, quorum coordination
     internal/store/      versioned in-memory key-value store
@@ -174,29 +177,34 @@ If no idle connection is available, the node opens a new one.
     benchmarks/          distribution measurement script
     decisions/           architecture decision records
 
+## Cluster Configuration
+
+All nodes load the same cluster definition from `config/cluster.yaml`.
+
+Example:
+```
+listen_address: ":8080"
+
+nodes:
+  - id: node-a
+    address: node-a:8080
+  - id: node-b
+    address: node-b:8080
+  - id: node-c
+    address: node-c:8080
+```
+`listen_address` is the local address each server binds to inside its container.
+
+Each address under `nodes` is the advertised address other nodes use to reach that server over the Docker Compose network.
+
+Every container receives the same configuration file but starts with a different `--id` value.
+
 ## Decisions
 
 - [001: Virtual nodes and FNV-1a prefix ordering](decisions/001-virtual-nodes.md)
 - [002: Connection pool for forwarding](decisions/002-connection-pool.md)
-
-## Running a Single Server
-
-```bash
-go run ./cmd/kvstore/ --id node-a --addr :8080
-```
-
-Then connect with any TCP client:
-
-```bash
-nc localhost 8080
-SET foo bar
-GET foo
-DELETE foo
-GET foo
-```
-
-Note: You must change the configuration. The default replication factor is 3,
-and with a single-node server, you will get `err finding replicas: hashring: too many replicas, not enough servers`. Therefore, quorum operations should normally be tested using at least a 3-node cluster.
+- [003: Quorum semantics](decisions/003-quorum-semantics.md)
+- [004: Replica protocol trust boundary](decisions/004-replica-protocol-boundary.md)
 
 ## Running the tests
 
@@ -212,37 +220,59 @@ go test -v ./internal/hashring/    # includes rebalance move percentages
 go run ./benchmarks/distribution.go
 ```
 
-## Testing a Three-Node Cluster
+## Running a Three-Node Cluster
 
-Terminal 1:
+The cluster uses one shared configuration file and one Docker image. Docker Compose starts three instances of the same server with different node IDs.
+
+To start, run:
 ```bash
-go run ./cmd/kvstore/ --id node-a --addr :8080 --peers node-b=:8081,node-c=:8082
-```
-Terminal 2:
-```bash
-go run ./cmd/kvstore/ --id node-b --addr :8081 --peers node-a=:8080,node-c=:8082
-```
-Terminal 3:
-```bash
-go run ./cmd/kvstore/ --id node-c --addr :8082 --peers node-a=:8080,node-b=:8081
+docker compose -f docker/compose.yaml up --build
 ```
 
-Terminal 3:
+The debugging port mappings are:
+```
+localhost:8080 -> node-a:8080
+localhost:8081 -> node-b:8080
+localhost:8082 -> node-c:8080
+```
+All three nodes listen on port 8080 inside their own containers. The different host ports allow each node to be contacted directly during development.
+
+Connect to any node:
+```bash 
+nc localhost 8080 # node-a
+```
+You can also connect directly to other nodes:
 ```bash
-nc localhost 8080
+nc localhost 8081 # node-b
+nc localhost 8082 # node-c
+```
+Example commands:
+```
 SET foo bar
 GET foo
 DELETE foo
 GET foo
 ```
+The node receiving the client command acts as the coordinator. It finds the three replicas for the key, sends the operation to those replicas, and returns success after the required quorum is reached.
 
-The client is connected only to node-a.
+### Running in the background
+Use detached mode to start the cluster without keeping the logs attached to the current terminal.
+```bash
+docker compose -f docker/compose.yaml up --build -d
+```
 
-For `SET foo bar`, node-a acts as the coordinator. It finds the 3 replicas for
-`foo`, writes the value locally if node-a is one of them, and sends
-`REPLICA_SET` commands to the remote replicas.
+View logs from the full cluster:
+```bash
+docker compose -f docker/compose.yaml logs -f
+```
 
-The write returns `OK` after at least 2 replicas acknowledge it.
+View logs from one node:
+```bash
+docker compose -f docker/compose.yaml logs -f node-a
+```
 
-A later `GET foo` reads from 2 replicas, compares their versions, and returns
-the newest value.
+Stop and remove the cluster containers:
+```bash
+docker compose -f docker/compose.yaml down
+```
+The store is currently in memory, so stopping the containers removes all stored records.
