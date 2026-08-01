@@ -1,0 +1,12 @@
+# yaml-language-server: $schema=none
+listen_address: ":8080"
+
+nodes:
+  - id: node-a
+    address: node-a:8080
+
+  - id: node-b
+    address: node-b:8080
+
+  - id: node-c
+    address: node-c:8080
