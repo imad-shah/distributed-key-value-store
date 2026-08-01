@@ -26,6 +26,7 @@ func (p *Pool) Get(addr string) (net.Conn, error) {
 
 	select {
 	case conn := <-idleList:
+		log.Printf("POOL: using existing connection to %s", addr)
 		return conn, nil
 	default:
 		log.Printf("POOL: dialing new connection to %s", addr)
