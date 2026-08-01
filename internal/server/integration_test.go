@@ -33,7 +33,7 @@ func TestFullLoopReplicaCommands(t *testing.T) {
 
 	// Assert responses
 	reader := bufio.NewReader(conn)
-	fmt.Fprintf(conn, "REPLICA_SET foo bar\n")
+	fmt.Fprintf(conn, "REPLICA_SET foo 500 node-a bar\n")
 	response, _ := reader.ReadString('\n')
 	if response != "OK\n" {
 		t.Errorf("REPLICA_SET: got %q, want %q", response, "OK\n")
@@ -41,8 +41,8 @@ func TestFullLoopReplicaCommands(t *testing.T) {
 
 	fmt.Fprintf(conn, "REPLICA_GET foo\n")
 	response, _ = reader.ReadString('\n')
-	if response != "bar\n" {
-		t.Errorf("REPLICA_GET: got %q, want %q", response, "bar\n")
+	if response != "VALUE 500 node-a bar\n" {
+		t.Errorf("REPLICA_GET: got %q, want %q", response, "VALUE 500 node-a bar\n")
 	}
 }
 
@@ -96,9 +96,9 @@ func TestQuorumReplication(t *testing.T) {
 	}
 	for nodeID, kv := range stores {
 		got, ok := kv.Get("foo")
-		if !ok || got != "bar" {
+		if !ok || got.Tombstone || got.Value != "bar" {
 			t.Errorf(
-				"%s Get(%q) = %q, %v; want %q, true",
+				"%s Get(%q) = %+v, %v; want live value %q",
 				nodeID,
 				"foo",
 				got,
@@ -123,9 +123,20 @@ func TestQuorumReplication(t *testing.T) {
 		t.Fatalf("DELETE: got %q, want %q", response, "OK\n")
 	}
 	for nodeID, kv := range stores {
-		if value, ok := kv.Get("foo"); ok {
+		value, ok := kv.Get("foo")
+
+		if !ok {
 			t.Errorf(
-				"%s still contains %q=%q after DELETE",
+				"%s missing tombstone for %q after DELETE",
+				nodeID,
+				"foo",
+			)
+			continue
+		}
+
+		if !value.Tombstone {
+			t.Errorf(
+				"%s Get(%q) = %+v; want tombstone",
 				nodeID,
 				"foo",
 				value,

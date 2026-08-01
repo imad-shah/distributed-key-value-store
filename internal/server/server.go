@@ -7,7 +7,9 @@ import (
 	"io"
 	"log"
 	"net"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/imad-shah/distributed-key-value-store/internal/cluster"
 	"github.com/imad-shah/distributed-key-value-store/internal/store"
@@ -18,6 +20,73 @@ const (
 	readQuorum        = 2
 	writeQuorum       = 2
 )
+
+/*
+outcome of reading from 1 replica
+a replica read can result in 3 states
+1. Missing key
+2. Live value
+3. Tombstone
+
+Missing Key -
+
+	replicaReadResult{
+		Found: false,
+	}
+
+Live Value-
+
+	replicaReadResult{
+		Value: store.VersionedValue{
+			Value: "bar",
+			Version: store.Version{
+				Timestamp: 500,
+				NodeID:    "node-a",
+			},
+			Tombstone: false,
+		},
+		Found: true,
+	}
+
+Tombstone-
+
+	replicaReadResult{
+		Value: store.VersionedValue{
+			Version: store.Version{
+				Timestamp: 700,
+				NodeID:    "node-b",
+			},
+			Tombstone: true,
+		},
+		Found: true,
+	}
+*/
+type replicaReadResult struct {
+	Value store.VersionedValue
+	Found bool
+}
+
+/*
+answers 3 questions:
+Which replica responded?
+What result did it return?
+Did the operation fail?
+
+we need this because when we use goroutines, the channel needs one object with everything associated with that response
+replica identity will also be needed for future repairs. example:
+node-a: bar @ 500
+node-b: baz @ 700    <- winner
+node-c: timeout
+
+node-a is stale and needs repair
+node-b already has the winner
+node-c did not respond
+*/
+type replicaReadResponse struct {
+	Replica cluster.Replica
+	Result  replicaReadResult
+	Err     error
+}
 
 func handleConnection(conn net.Conn, node *cluster.Node, kv *store.Store, pool *Pool) {
 	defer conn.Close()
@@ -89,6 +158,8 @@ func handleCommand(cmd Command, node *cluster.Node, kv *store.Store, pool *Pool)
 }
 
 func coordinateSet(cmd Command, node *cluster.Node, kv *store.Store, pool *Pool) string {
+	record := newRecord(cmd, node)
+
 	replicas, err := node.Replicas(cmd.Key, replicationFactor)
 	if err != nil {
 		return fmt.Sprintf("err finding replicas: %v", err)
@@ -96,7 +167,7 @@ func coordinateSet(cmd Command, node *cluster.Node, kv *store.Store, pool *Pool)
 
 	successCount := 0
 	for _, replica := range replicas {
-		if err := setOnReplica(replica, cmd, kv, pool); err != nil {
+		if err := setOnReplica(replica, cmd.Key, record, kv, pool); err != nil {
 			log.Printf("write for key %q to replica %q failed: %v", cmd.Key, replica.ID, err)
 			continue
 		}
@@ -111,41 +182,60 @@ func coordinateSet(cmd Command, node *cluster.Node, kv *store.Store, pool *Pool)
 }
 
 func coordinateGet(cmd Command, node *cluster.Node, kv *store.Store, pool *Pool) string {
-	replicas, err := node.Replicas(cmd.Key, 3)
+	replicas, err := node.Replicas(cmd.Key, replicationFactor)
 	if err != nil {
 		return fmt.Sprintf("err finding replicas: %v", err)
 	}
-	responses := make([]string, 0, 2)
+	responses := make([]replicaReadResult, 0, readQuorum)
 
 	for _, replica := range replicas {
-		response, err := getFromReplica(replica, cmd, kv, pool)
+		value, found, err := getFromReplica(replica, cmd, kv, pool)
 		if err != nil {
 			log.Printf("read key %q from replica %q failed: %v", cmd.Key, replica.ID, err)
 			continue
 		}
-		responses = append(responses, response)
-		if len(responses) == 2 {
+		responses = append(responses, replicaReadResult{
+			Value: value,
+			Found: found,
+		})
+
+		if len(responses) == readQuorum {
 			break
 		}
 	}
 
-	if len(responses) < 2 {
-		return fmt.Sprintf("error read quorum not reached: got %d responses, wanted 2", len(responses))
+	// iterate through the replica responses, choose the newest one
+	winner, found := chooseNewest(responses)
+	if !found {
+		return "NOT_FOUND"
 	}
 
-	//TODO: only reports an error if the values disagree, ie:
-	// node-b -> bar, node-c -> baz
-	// instead, should use timestamps to correct the stale value,
-	// then have some kind of updating logic 
-	if responses[0] != responses[1] {
-		return "error replicas returned conflicting values"
+	if winner.Tombstone {
+		return "NOT_FOUND"
 	}
-
-	return responses[0]
+	return winner.Value
 
 }
 
+func chooseNewest(responses []replicaReadResult) (store.VersionedValue, bool) {
+	var winner store.VersionedValue
+	foundWinner := false
+
+	for _, response := range responses {
+		if !response.Found {
+			continue
+		}
+		if !foundWinner || response.Value.Version.After(winner.Version) {
+			winner = response.Value
+			foundWinner = true
+		}
+	}
+	return winner, foundWinner
+}
+
 func coordinateDelete(cmd Command, node *cluster.Node, kv *store.Store, pool *Pool) string {
+	record := newRecord(cmd, node)
+
 	replicas, err := node.Replicas(cmd.Key, 3)
 	if err != nil {
 		return fmt.Sprintf("err finding replicas: %v", err)
@@ -153,14 +243,14 @@ func coordinateDelete(cmd Command, node *cluster.Node, kv *store.Store, pool *Po
 
 	successCount := 0
 	for _, replica := range replicas {
-		if err := deleteFromReplica(replica, cmd, kv, pool); err != nil {
+		if err := deleteFromReplica(replica, cmd.Key, record, kv, pool); err != nil {
 			log.Printf("delete for key %q to replica %q failed: %v", cmd.Key, replica.ID, err)
 			continue
 		}
 		successCount++
 	}
 
-	if successCount >= 2 {
+	if successCount >= writeQuorum {
 		return "OK"
 	}
 
@@ -170,20 +260,34 @@ func coordinateDelete(cmd Command, node *cluster.Node, kv *store.Store, pool *Po
 func executeLocal(cmd Command, kv *store.Store) string {
 	switch cmd.Type {
 	case CmdReplicaGet:
-		if val, ok := kv.Get(cmd.Key); ok {
-			return val
+		val, found := kv.Get(cmd.Key)
+		if !found {
+			return "NOT_FOUND"
 		}
-		return "NOT_FOUND"
+		return formatReplicaGetResponse(val)
 
 	case CmdReplicaSet:
-		kv.Set(cmd.Key, cmd.Value)
+		record, err := recordFromCommand(cmd)
+		if err != nil {
+			return fmt.Sprintf("error %v", err)
+		}
+
+		if ok := kv.Put(cmd.Key, record); !ok {
+			return "STALE"
+		}
 		return "OK"
 
 	case CmdReplicaDelete:
-		if kv.Delete(cmd.Key) {
-			return "OK"
+		record, err := recordFromCommand(cmd)
+		if err != nil {
+			return fmt.Sprintf("error %v", err)
 		}
-		return "NOT_FOUND"
+
+		if ok := kv.Put(cmd.Key, record); !ok {
+			return "STALE"
+		}
+		return "OK"
+
 	default:
 		return "error not a replica command"
 	}
@@ -198,13 +302,46 @@ func isReplicaCommand(cmdType CommandType) bool {
 	}
 }
 
-func setOnReplica(replica cluster.Replica, cmd Command, kv *store.Store, pool *Pool) error {
+// for external SET & DELETE, Tombstone is based off which command is used
+func newRecord(cmd Command, node *cluster.Node) store.VersionedValue {
+	return store.VersionedValue{
+		Value: cmd.Value,
+		Version: store.Version{
+			Timestamp: time.Now().UnixNano(),
+			NodeID:    node.ID(),
+		},
+		Tombstone: cmd.Type == CmdDelete,
+	}
+}
+
+// for replicas, record creation, takes inputs from the cmd (cmd.Timestamp, cmd.NodeID, etc)
+func recordFromCommand(cmd Command) (store.VersionedValue, error) {
+	switch cmd.Type {
+	case CmdReplicaSet, CmdReplicaDelete:
+		return store.VersionedValue{
+			Value: cmd.Value,
+			Version: store.Version{
+				Timestamp: cmd.Timestamp,
+				NodeID:    cmd.NodeID,
+			},
+			Tombstone: cmd.Type == CmdReplicaDelete,
+		}, nil
+
+	default:
+		return store.VersionedValue{},
+			fmt.Errorf("cannot reconstruct record from %s", cmd.Type)
+	}
+}
+
+func setOnReplica(replica cluster.Replica, key string, record store.VersionedValue, kv *store.Store, pool *Pool) error {
 	if replica.IsSelf {
-		kv.Set(cmd.Key, cmd.Value)
+		if ok := kv.Put(key, record); !ok {
+			return fmt.Errorf("local replica rejected stale or conflicted write")
+		}
 		return nil
 	}
 
-	line := fmt.Sprintf("REPLICA_SET %s %s", cmd.Key, cmd.Value)
+	line := fmt.Sprintf("REPLICA_SET %s %d %s %s", key, record.Version.Timestamp, record.Version.NodeID, record.Value)
 	response, err := forward(pool, replica.Addr, line)
 	if err != nil {
 		return err
@@ -216,40 +353,94 @@ func setOnReplica(replica cluster.Replica, cmd Command, kv *store.Store, pool *P
 	return nil
 }
 
-func getFromReplica(replica cluster.Replica, cmd Command, kv *store.Store, pool *Pool) (string, error) {
+func deleteFromReplica(replica cluster.Replica, key string, record store.VersionedValue, kv *store.Store, pool *Pool) error {
 	if replica.IsSelf {
-		if value, ok := kv.Get(cmd.Key); ok {
-			return value, nil
+		if ok := kv.Put(key, record); !ok {
+			return fmt.Errorf("local replica rejected stale or conflicted write")
 		}
-		return "NOT_FOUND", nil
-	}
-
-	line := fmt.Sprintf("REPLICA_GET %s", cmd.Key)
-	response, err := forward(pool, replica.Addr, line)
-	if err != nil {
-		return "", err
-	}
-
-	return response, nil
-
-}
-
-func deleteFromReplica(replica cluster.Replica, cmd Command, kv *store.Store, pool *Pool) error {
-	if replica.IsSelf {
-		kv.Delete(cmd.Key)
 		return nil
 	}
 
-	line := fmt.Sprintf("REPLICA_DELETE %s", cmd.Key)
+	line := fmt.Sprintf("REPLICA_DELETE %s %d %s", key, record.Version.Timestamp, record.Version.NodeID)
 	response, err := forward(pool, replica.Addr, line)
 	if err != nil {
 		return err
 	}
 
-	if response != "OK" && response != "NOT_FOUND" {
+	if response != "OK" {
 		return fmt.Errorf("replica returned %q", response)
 	}
 	return nil
+}
+
+func getFromReplica(replica cluster.Replica, cmd Command, kv *store.Store, pool *Pool) (store.VersionedValue, bool, error) {
+	if replica.IsSelf {
+		value, ok := kv.Get(cmd.Key)
+		return value, ok, nil
+	}
+
+	line := fmt.Sprintf("REPLICA_GET %s", cmd.Key)
+	response, err := forward(pool, replica.Addr, line)
+	if err != nil {
+		return store.VersionedValue{}, false, err
+	}
+
+	return parseReplicaGetResponse(response)
+
+}
+
+func formatReplicaGetResponse(value store.VersionedValue) string {
+	if value.Tombstone {
+		return fmt.Sprintf(
+			"TOMBSTONE %d %s",
+			value.Version.Timestamp,
+			value.Version.NodeID,
+		)
+	}
+
+	return fmt.Sprintf(
+		"VALUE %d %s %s",
+		value.Version.Timestamp,
+		value.Version.NodeID,
+		value.Value,
+	)
+}
+
+func parseReplicaGetResponse(response string) (store.VersionedValue, bool, error) {
+	if response == "NOT_FOUND" {
+		return store.VersionedValue{}, false, nil
+	}
+
+	kind, rest := splitFirst(response)
+	timestampStr, rest := splitFirst(rest)
+	nodeID, value := splitFirst(rest)
+
+	timestamp, err := strconv.ParseInt(timestampStr, 10, 64)
+	if err != nil {
+		return store.VersionedValue{}, false, fmt.Errorf("invalid timestamp %q: %w", timestampStr, err)
+	}
+
+	switch kind {
+	case "VALUE":
+		return store.VersionedValue{
+			Value: value,
+			Version: store.Version{
+				Timestamp: timestamp,
+				NodeID:    nodeID,
+			},
+			Tombstone: false,
+		}, true, nil
+	case "TOMBSTONE":
+		return store.VersionedValue{
+			Version: store.Version{
+				Timestamp: timestamp,
+				NodeID:    nodeID,
+			},
+			Tombstone: true,
+		}, true, nil
+	default:
+		return store.VersionedValue{}, false, fmt.Errorf("unknown replica response %q", response)
+	}
 }
 
 func StartServer(addr string, node *cluster.Node, kv *store.Store, pool *Pool) {
