@@ -17,9 +17,14 @@ import (
 
 const (
 	replicationFactor = 3
-	readQuorum        = 2
-	writeQuorum       = 2
+
+	readQuorum  = 2
+	writeQuorum = 2
+
+	writeTimeout = 2 * time.Second
+	readTimeout  = 2 * time.Second
 )
+
 // replicaReadResult is one successful replica read
 // Found=false means the replica has no record, ie a tombstone has Found=true.
 type replicaReadResult struct {
@@ -28,11 +33,12 @@ type replicaReadResult struct {
 }
 
 // replicaReadResponse connects a read result with its replica
-type replicaReadResponse struct {
-	Replica cluster.Replica
-	Result  replicaReadResult
-	Err     error
-}
+// TODO: use this when concurrent fan-out is implemented
+// type replicaReadResponse struct {
+// 	Replica cluster.Replica
+// 	Result  replicaReadResult
+// 	Err     error
+// }
 
 func handleConnection(conn net.Conn, node *cluster.Node, kv *store.Store, pool *Pool) {
 	defer conn.Close()
@@ -64,15 +70,34 @@ func forward(pool *Pool, addr, line string) (string, error) {
 		return "", err
 	}
 
+	// bounds how long writing can block
+	if err := conn.SetWriteDeadline(time.Now().Add(writeTimeout)); err != nil {
+		conn.Close()
+		return "", err
+	}
 	if _, err := fmt.Fprintf(conn, "%s\n", line); err != nil {
 		conn.Close() // broke mid write
 		return "", err
 	}
+
+	// bounds how long reading can block
+	if err := conn.SetReadDeadline(time.Now().Add(readTimeout)); err != nil {
+		conn.Close()
+		return "", err
+	}
+
 	response, err := bufio.NewReader(conn).ReadString('\n')
 	if err != nil {
 		conn.Close() // broke mid read
 		return "", err
 	}
+
+	// reset deadlines
+	if err := conn.SetDeadline(time.Time{}); err != nil {
+		conn.Close()
+		return "", err
+	}
+
 	pool.Put(addr, conn)
 	return strings.TrimRight(response, "\n"), nil
 }
