@@ -2,8 +2,10 @@ package server
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"net"
+	"os"
 	"testing"
 	"time"
 
@@ -108,8 +110,31 @@ func TestGetFailsWithOneOfThreeAvailable(t *testing.T) {
 	if response != want {
 		t.Fatalf("Get(%q) got %v, want %v", "foo", response, want)
 	}
-
 }
+
+func TestForwardTimesOutWaitingForResponse(t *testing.T) {
+	listener, addr := createListener(t)
+	release := make(chan struct{})
+	defer close(release)
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			return
+		}
+		bufio.NewReader(conn).ReadString('\n')
+		defer conn.Close()
+		<-release
+	}()
+	_, err := forward(NewPool(8), addr, "REPLICA_GET foo")
+	if err == nil {
+		t.Fatalf("got no error, error timeout was expected")
+	}
+
+	if !errors.Is(err, os.ErrDeadlineExceeded) {
+		t.Fatalf("expected ErrDeadlineExceeded, got: %v", err)
+	}
+}
+
 func startTestCluster(t *testing.T, liveNodeIDs []string) *testCluster {
 	t.Helper()
 
