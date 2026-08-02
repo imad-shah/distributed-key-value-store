@@ -1,0 +1,197 @@
+package server
+
+import (
+	"bufio"
+	"fmt"
+	"net"
+	"testing"
+	"time"
+
+	"github.com/imad-shah/distributed-key-value-store/internal/cluster"
+	"github.com/imad-shah/distributed-key-value-store/internal/hashring"
+	"github.com/imad-shah/distributed-key-value-store/internal/store"
+)
+
+type testCluster struct {
+	stores map[string]*store.Store
+	addrs  map[string]string
+}
+
+func TestSetSucceedsWithTwoOfThreeAcks(t *testing.T) {
+	tc := startTestCluster(t, []string{"node-a", "node-b"})
+
+	response := sendCommand(t, tc.addrs["node-a"], "SET foo bar")
+	if response != "OK\n" {
+		t.Errorf("SET: got %q, want %q", response, "OK\n")
+	}
+
+	val, ok := tc.stores["node-a"].Get("foo")
+	if !ok {
+		t.Fatalf("Get(%q) on serverA does not contain %q", "foo", "bar")
+	}
+	if val.Value != "bar" {
+		t.Fatalf("val %v, does not have %q stored", val, "bar")
+	}
+
+	val, ok = tc.stores["node-b"].Get("foo")
+	if !ok {
+		t.Fatalf("Get(%q) on serverB does not contain %q", "foo", "bar")
+	}
+	if val.Value != "bar" {
+		t.Fatalf("val %v, does not have %q stored", val, "bar")
+	}
+}
+
+func TestSetFailsWithOneOfThreeAcks(t *testing.T) {
+	tc := startTestCluster(t, []string{"node-a"})
+
+	response := sendCommand(t, tc.addrs["node-a"], "SET foo bar")
+	want := "error write quorum not reached: got 1 acks, wanted 2\n"
+	if response != want {
+		t.Errorf("SET response = %q, want %q", response, want)
+	}
+
+	val, ok := tc.stores["node-a"].Get("foo")
+	if !ok {
+		t.Fatalf("Get(%q) on serverA does not contain %q", "foo", "bar")
+	}
+	if val.Value != "bar" {
+		t.Fatalf("val %v, does not have %q stored", val, "bar")
+	}
+	if val.Tombstone {
+		t.Fatalf("val %v, has tombstone set to true", val)
+	}
+}
+
+func TestGetSucceedsWithTwoOfThreeAvailable(t *testing.T) {
+	tc := startTestCluster(t, []string{"node-a", "node-b"})
+	val := store.VersionedValue{
+		Value: "bar",
+		Version: store.Version{
+			Timestamp: 500,
+			NodeID:    "node-a",
+		},
+		Tombstone: false,
+	}
+
+	ok := tc.stores["node-a"].Put("foo", val)
+	if !ok {
+		t.Fatalf("PUT(%q, %v) on node %q unsuccessful", "foo", val, "node-a")
+	}
+
+	ok = tc.stores["node-b"].Put("foo", val)
+	if !ok {
+		t.Fatalf("PUT(%q, %v) on node %q unsuccessful", "foo", val, "node-b")
+	}
+
+	response := sendCommand(t, tc.addrs["node-a"], "GET foo")
+	if response != "bar\n" {
+		t.Fatalf("Get(%q) got %q, want %q", "foo", response, "bar")
+	}
+
+}
+
+func TestGetFailsWithOneOfThreeAvailable(t *testing.T) {
+	tc := startTestCluster(t, []string{"node-a"})
+	val := store.VersionedValue{
+		Value: "bar",
+		Version: store.Version{
+			Timestamp: 500,
+			NodeID:    "node-a",
+		},
+		Tombstone: false,
+	}
+	tc.stores["node-a"].Put("foo", val)
+
+	response := sendCommand(t, tc.addrs["node-a"], "GET foo")
+	want := "error read quorum not reached: got 1 responses, want 2\n"
+	if response != want {
+		t.Fatalf("Get(%q) got %v, want %v", "foo", response, want)
+	}
+
+}
+func startTestCluster(t *testing.T, liveNodeIDs []string) *testCluster {
+	t.Helper()
+
+	tc := &testCluster{
+		stores: make(map[string]*store.Store),
+		addrs:  make(map[string]string),
+	}
+
+	listenerA, addrA := createListener(t)
+	listenerB, addrB := createListener(t)
+	listenerC, addrC := createListener(t)
+	tc.addrs["node-a"] = addrA
+	tc.addrs["node-b"] = addrB
+	tc.addrs["node-c"] = addrC
+
+	nodeToListener := map[string]net.Listener{
+		"node-a": listenerA,
+		"node-b": listenerB,
+		"node-c": listenerC,
+	}
+	for _, node := range liveNodeIDs {
+		if _, ok := nodeToListener[node]; !ok {
+			t.Fatalf("node: %v is not in test cluster", node)
+		}
+	}
+
+	cfg := cluster.Config{
+		ListenAddress: ":0",
+		Nodes: []cluster.NodeConfig{
+			{ID: "node-a", Address: addrA},
+			{ID: "node-b", Address: addrB},
+			{ID: "node-c", Address: addrC},
+		},
+	}
+
+	live := make(map[string]struct{})
+	for _, node := range liveNodeIDs {
+		live[node] = struct{}{}
+	}
+
+	for node := range nodeToListener {
+		if _, ok := live[node]; !ok {
+			nodeToListener[node].Close()
+			continue
+		}
+
+		nodeX, err := cluster.NewNodeFromConfig(node, cfg, hashring.New(256))
+		if err != nil {
+			t.Fatalf("creating node: %v lead to error: %v", nodeX.ID(), err)
+		}
+		storeX := store.New()
+		tc.stores[node] = storeX
+		go acceptLoop(nodeToListener[node], nodeX, storeX, NewPool(8))
+	}
+	return tc
+}
+
+func sendCommand(t *testing.T, address, command string) string {
+	t.Helper()
+
+	network := "tcp"
+	conn, err := net.Dial(network, address)
+	if err != nil {
+		t.Fatalf("conn: %v failed to dial: %v", conn, err)
+	}
+
+	err = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if err != nil {
+		t.Fatalf("conn: %v ran into error setting read deadline: %v", conn, err)
+	}
+	defer conn.Close()
+
+	reader := bufio.NewReader(conn)
+	_, err = fmt.Fprintln(conn, command)
+	if err != nil {
+		t.Fatalf("conn: %v ran into error writing to connection: %v", conn, err)
+	}
+
+	response, err := reader.ReadString('\n')
+	if err != nil {
+		t.Fatalf("error reading response: %v", err)
+	}
+
+	return response
+}
