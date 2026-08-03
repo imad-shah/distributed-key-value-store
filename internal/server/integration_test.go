@@ -114,18 +114,16 @@ func TestQuorumReplication(t *testing.T) {
 		"node-b": storeB,
 		"node-c": storeC,
 	}
-	for nodeID, kv := range stores {
+
+	successCount := 0
+	for _, kv := range stores {
 		got, ok := kv.Get("foo")
-		if !ok || got.Tombstone || got.Value != "bar" {
-			t.Errorf(
-				"%s Get(%q) = %+v, %v; want live value %q",
-				nodeID,
-				"foo",
-				got,
-				ok,
-				"bar",
-			)
+		if ok && !got.Tombstone && got.Value == "bar" {
+			successCount++
 		}
+	}
+	if successCount < writeQuorum {
+		t.Errorf("inspected all 3 nodes, writeQuorum not met after %q", "SET foo bar")
 	}
 
 	fmt.Fprintf(conn, "GET foo\n")
@@ -142,26 +140,16 @@ func TestQuorumReplication(t *testing.T) {
 	if response != "OK\n" {
 		t.Fatalf("DELETE: got %q, want %q", response, "OK\n")
 	}
-	for nodeID, kv := range stores {
+
+	successCount = 0
+	for _, kv := range stores {
 		value, ok := kv.Get("foo")
-
-		if !ok {
-			t.Errorf(
-				"%s missing tombstone for %q after DELETE",
-				nodeID,
-				"foo",
-			)
-			continue
+		if ok && value.Tombstone {
+			successCount++
 		}
-
-		if !value.Tombstone {
-			t.Errorf(
-				"%s Get(%q) = %+v; want tombstone",
-				nodeID,
-				"foo",
-				value,
-			)
-		}
+	}
+	if successCount < writeQuorum {
+		t.Errorf("inspected all 3 nodes, writeQuorum not met after %q", "DELETE foo")
 	}
 }
 

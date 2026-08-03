@@ -25,20 +25,19 @@ const (
 	readTimeout  = 2 * time.Second
 )
 
-// replicaReadResult is one successful replica read
-// Found=false means the replica has no record, ie a tombstone has Found=true.
+// replicaReadResult is one replica read
+// Found=false means the replica has no record/doesnt exist
 type replicaReadResult struct {
 	Value store.VersionedValue
 	Found bool
 }
 
 // replicaReadResponse connects a read result with its replica
-// TODO: use this when concurrent fan-out is implemented
-// type replicaReadResponse struct {
-// 	Replica cluster.Replica
-// 	Result  replicaReadResult
-// 	Err     error
-// }
+type replicaReadResponse struct {
+	Replica cluster.Replica
+	Result  replicaReadResult
+	Err     error
+}
 
 func handleConnection(conn net.Conn, node *cluster.Node, kv *store.Store, pool *Pool) {
 	defer conn.Close()
@@ -136,17 +135,25 @@ func coordinateSet(cmd Command, node *cluster.Node, kv *store.Store, pool *Pool)
 		return fmt.Sprintf("err finding replicas: %v", err)
 	}
 
-	successCount := 0
+	results := make(chan error, len(replicas))
 	for _, replica := range replicas {
-		if err := setOnReplica(replica, cmd.Key, record, kv, pool); err != nil {
-			log.Printf("write for key %q to replica %q failed: %v", cmd.Key, replica.ID, err)
-			continue
-		}
-		successCount++
+		go func(r cluster.Replica) {
+			err := setOnReplica(r, cmd.Key, record, kv, pool)
+			if err != nil {
+				log.Printf("write for key %q to replica %q failed: %v", cmd.Key, r.ID, err)
+			}
+			results <- err
+		}(replica)
 	}
-
-	if successCount >= writeQuorum {
-		return "OK"
+	successCount := 0
+	for range replicas {
+		err := <-results
+		if err == nil {
+			successCount++
+			if successCount >= writeQuorum {
+				return "OK"
+			}
+		}
 	}
 
 	return fmt.Sprintf("error write quorum not reached: got %d acks, wanted %d", successCount, writeQuorum)
@@ -157,43 +164,78 @@ func coordinateGet(cmd Command, node *cluster.Node, kv *store.Store, pool *Pool)
 	if err != nil {
 		return fmt.Sprintf("err finding replicas: %v", err)
 	}
-	responses := make([]replicaReadResult, 0, readQuorum)
 
+	responses := make(chan replicaReadResponse, len(replicas))
 	for _, replica := range replicas {
-		value, found, err := getFromReplica(replica, cmd, kv, pool)
-		if err != nil {
-			log.Printf("read key %q from replica %q failed: %v", cmd.Key, replica.ID, err)
-			continue
+		go func(r cluster.Replica) {
+			value, found, err := getFromReplica(r, cmd, kv, pool)
+			if err != nil {
+				log.Printf("read key %q from replica %q failed: %v", cmd.Key, r.ID, err)
+			}
+			response := replicaReadResponse{
+				Replica: r,
+				Result: replicaReadResult{
+					Value: value,
+					Found: found,
+				},
+				Err: err,
+			}
+			responses <- response
+		}(replica)
+	}
+
+	successfulReplicaReadList := make([]replicaReadResult, 0, readQuorum)
+	for range replicas {
+		replicaResponse := <-responses
+		if replicaResponse.Err == nil {
+			successfulReplicaReadList = append(successfulReplicaReadList, replicaResponse.Result)
+			if len(successfulReplicaReadList) >= readQuorum {
+				winner, found := chooseNewest(successfulReplicaReadList)
+				if !found || winner.Tombstone {
+					return "NOT_FOUND"
+				}
+				return winner.Value
+			}
 		}
-		responses = append(responses, replicaReadResult{
-			Value: value,
-			Found: found,
-		})
+	}
+	return fmt.Sprintf(
+		"error read quorum not reached: got %d responses, want %d",
+		len(successfulReplicaReadList),
+		readQuorum,
+	)
+}
 
-		if len(responses) == readQuorum {
-			break
+func coordinateDelete(cmd Command, node *cluster.Node, kv *store.Store, pool *Pool) string {
+	record := newRecord(cmd, node)
+
+	replicas, err := node.Replicas(cmd.Key, replicationFactor)
+	if err != nil {
+		return fmt.Sprintf("err finding replicas: %v", err)
+	}
+
+	buffer := make(chan error, len(replicas))
+	for _, replica := range replicas {
+		go func(r cluster.Replica) {
+			err := deleteFromReplica(r, cmd.Key, record, kv, pool)
+			if err != nil {
+				log.Printf("delete for key %q to replica %q failed: %v", cmd.Key, r.ID, err)
+			}
+			buffer <- err
+		}(replica)
+	}
+
+	successCount := 0
+	for range replicas {
+		err := <-buffer
+		if err == nil {
+			successCount++
+			if successCount >= writeQuorum {
+				return "OK"
+			}
 		}
 	}
 
-	if len(responses) < readQuorum {
-		return fmt.Sprintf(
-			"error read quorum not reached: got %d responses, want %d",
-			len(responses),
-			readQuorum,
-		)
-	}
-
-	// iterate through the replica responses, choose the newest one
-	winner, found := chooseNewest(responses)
-	if !found {
-		return "NOT_FOUND"
-	}
-
-	if winner.Tombstone {
-		return "NOT_FOUND"
-	}
-	return winner.Value
-
+	return fmt.Sprintf("error delete quorum not reached: got %d acks, wanted %d", successCount, writeQuorum)
 }
 
 func chooseNewest(responses []replicaReadResult) (store.VersionedValue, bool) {
@@ -210,30 +252,6 @@ func chooseNewest(responses []replicaReadResult) (store.VersionedValue, bool) {
 		}
 	}
 	return winner, foundWinner
-}
-
-func coordinateDelete(cmd Command, node *cluster.Node, kv *store.Store, pool *Pool) string {
-	record := newRecord(cmd, node)
-
-	replicas, err := node.Replicas(cmd.Key, 3)
-	if err != nil {
-		return fmt.Sprintf("err finding replicas: %v", err)
-	}
-
-	successCount := 0
-	for _, replica := range replicas {
-		if err := deleteFromReplica(replica, cmd.Key, record, kv, pool); err != nil {
-			log.Printf("delete for key %q to replica %q failed: %v", cmd.Key, replica.ID, err)
-			continue
-		}
-		successCount++
-	}
-
-	if successCount >= writeQuorum {
-		return "OK"
-	}
-
-	return fmt.Sprintf("error delete quorum not reached: got %d acks, wanted %d", successCount, writeQuorum)
 }
 
 func executeLocal(cmd Command, kv *store.Store) string {
@@ -332,6 +350,21 @@ func setOnReplica(replica cluster.Replica, key string, record store.VersionedVal
 	return nil
 }
 
+func getFromReplica(replica cluster.Replica, cmd Command, kv *store.Store, pool *Pool) (store.VersionedValue, bool, error) {
+	if replica.IsSelf {
+		value, ok := kv.Get(cmd.Key)
+		return value, ok, nil
+	}
+
+	line := fmt.Sprintf("REPLICA_GET %s", cmd.Key)
+	response, err := forward(pool, replica.Addr, line)
+	if err != nil {
+		return store.VersionedValue{}, false, err
+	}
+
+	return parseReplicaGetResponse(response)
+}
+
 func deleteFromReplica(replica cluster.Replica, key string, record store.VersionedValue, kv *store.Store, pool *Pool) error {
 	if replica.IsSelf {
 		if ok := kv.Put(key, record); !ok {
@@ -350,22 +383,6 @@ func deleteFromReplica(replica cluster.Replica, key string, record store.Version
 		return fmt.Errorf("replica returned %q", response)
 	}
 	return nil
-}
-
-func getFromReplica(replica cluster.Replica, cmd Command, kv *store.Store, pool *Pool) (store.VersionedValue, bool, error) {
-	if replica.IsSelf {
-		value, ok := kv.Get(cmd.Key)
-		return value, ok, nil
-	}
-
-	line := fmt.Sprintf("REPLICA_GET %s", cmd.Key)
-	response, err := forward(pool, replica.Addr, line)
-	if err != nil {
-		return store.VersionedValue{}, false, err
-	}
-
-	return parseReplicaGetResponse(response)
-
 }
 
 func formatReplicaGetResponse(value store.VersionedValue) string {
