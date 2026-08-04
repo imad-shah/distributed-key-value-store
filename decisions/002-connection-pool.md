@@ -8,7 +8,7 @@ other node, sending the command, and reading the reply.
 
 The first version opened a **brand-new connection every single time**:
 
-```
+```text
 dial the peer  ->  send command  ->  read reply  ->  close connection
 ```
 
@@ -19,39 +19,50 @@ since a node usually forwards to the same few peers over and over.
 
 We're paying a setup cost on every request that we could pay once and reuse
 
-
 ## The Decision
 
 Keep a small stash of already-open connections to each peer, and reuse them
-instead of dialing fresh every time. This stash is the **connection pool**
+instead of dialing fresh every time. This stash is the **connection pool**.
 
 ### How the pool actually works
 
-The pool keeps, for each peer address, a small set of connections that are open
-but not currently in use ("idle"). The set is capped (8 per peer).
+**Borrow (`Get`)**
 
-Two operations:
+- Check the idle connections for the peer.
+- Close and discard expired entries.
+- Return the first non-expired connection.
+- Dial a fresh connection if no reusable entry remains.
 
-**Borrow (`Get`)** -> "I need a connection to this peer."
-- If there's an idle one sitting in the pool, take it and use it.
-- If the pool is empty, dial a fresh one.
+**Return (`Put`)**
 
-**Return (`Put`)** -> "I'm done with this connection."
-- If the pool has room (under the cap of 8), put it back so it can be reused.
-- If the pool is already full, close it.
-
+- Record the time the connection became idle.
+- Put it back if the per-peer pool has room.
+- Close it if the pool is full.
 
 ### Handling broken connections
 
-A pooled connection is reused across many requests. If a request leaves a
-connection in a bad state, like an error while sending, an error while reading, or
-the peer hung up, we must not put that connection back in the pool. The next
-request to borrow it would inherit the mess and fail.
+A pooled connection may become unusable while sitting idle, for example if the
+peer restarts or closes the socket.
 
-A connection only goes back in the pool if its request finished
-cleanly. Any error along the way will close the connection, not return it.
-The next borrower just dials a fresh one.
+A connection only returns to the pool when a request completes successfully.
+If writing, reading, or resetting deadlines fails, that connection is closed.
 
+When the first connection attempt fails during writing, reading, or deadline handling, the coordinator closes that connection and retries the request once
+using a guaranteed-fresh TCP connection.
+
+The retry is bounded to one additional attempt. If the fresh connection also
+fails, the error is returned to the caller.
+
+### Idle connection expiration
+
+Each idle connection stores the time it was returned to the pool.
+
+When `Get` examines an idle connection, it discards and closes it if it has been
+idle longer than 30 seconds. It continues checking the remaining pooled
+connections and dials a fresh connection if no reusable connection remains.
+
+Expiration is lazy: idle connections are checked when borrowed rather than by a
+background cleanup goroutine.
 
 ## Alternatives
 
@@ -67,21 +78,22 @@ I would've needed to build a whole protocol. Invites too much complexity.
 
 **A pool of separate connections per peer (what I chose).** Each borrowed
 connection carries exactly one request at a time, so there's no interleaving and
-no need for request IDs. We get connection reuse without building a multiplexing protocol. 
+no need for request IDs. We get connection reuse without building a multiplexing protocol.
 This is also how most database drivers manage connections, so it's an existing pattern.
-
 
 ## Trade-offs and known limits
 
-- **A dead pooled connection surfaces as a failed request.** If a connection has
-  been sitting in the pool and the peer closed it in the meantime, the next
-  request to borrow it will fail when it tries to send. Right now that failure is
-  passed back to the client as an error. A better version would notice the dead
-  connection, quietly throw it away, and retry once with a fresh dial. Haven't
-  built that retry yet.
+- A failed request is retried only once. The pool does not implement unlimited
+  retry or exponential backoff.
 
-- **No idle timeout or health checks.** Pooled connections stick around until
-  they're either reused or pushed out by the cap. Real pools close
-  connections that have been idle too long and periodically check they're still
-  alive. Not needed yet.
+- Idle expiration is lazy. A connection may remain open beyond 30 seconds if
+  that address is never accessed again.
 
+- There are no proactive health checks. TCP connection health is determined by
+  attempting to use the connection.
+
+- The pool has no global shutdown method yet, so idle connections are not
+  explicitly closed during graceful server shutdown.
+
+- Pool behavior is configured in code rather than through cluster
+  configuration.
