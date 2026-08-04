@@ -4,18 +4,32 @@ import (
 	"log"
 	"net"
 	"sync"
+	"time"
 )
+
+const (
+	idleTimeout = 30 * time.Second
+)
+
+type dialFunction func(network, address string) (net.Conn, error)
+
+type pooledConn struct {
+	conn      net.Conn
+	idleSince time.Time
+}
 
 type Pool struct {
 	mu   sync.Mutex
-	idle map[string]chan net.Conn
+	idle map[string]chan pooledConn
 	cap  int
+	dial dialFunction
 }
 
 func NewPool(capacity int) *Pool {
 	return &Pool{
-		idle: make(map[string]chan net.Conn),
+		idle: make(map[string]chan pooledConn),
 		cap:  capacity,
+		dial: net.Dial,
 	}
 }
 
@@ -24,15 +38,19 @@ func (p *Pool) Get(addr string) (net.Conn, error) {
 	idleList := p.channelFor(addr)
 	p.mu.Unlock()
 
-	select {
-	case conn := <-idleList:
-		log.Printf("POOL: using existing connection to %s", addr)
-		return conn, nil
-	default:
-		log.Printf("POOL: dialing new connection to %s", addr)
-		return net.Dial("tcp", addr)
+	for {
+		select {
+		case pooled := <-idleList:
+			if time.Since(pooled.idleSince) > idleTimeout {
+				log.Printf("POOL: closing expired connection to %s", addr)
+				pooled.conn.Close()
+				continue
+			}
+			return pooled.conn, nil
+		default:
+			return p.DialAlwaysFresh(addr)
+		}
 	}
-
 }
 
 func (p *Pool) Put(addr string, conn net.Conn) {
@@ -41,18 +59,29 @@ func (p *Pool) Put(addr string, conn net.Conn) {
 	p.mu.Unlock()
 
 	select {
-	case idleList <- conn:
+	case idleList <- pooledConn{
+		conn:      conn,
+		idleSince: time.Now(),
+	}:
 	default:
 		conn.Close()
 	}
 
 }
 
-func (p *Pool) channelFor(addr string) chan net.Conn {
+func (p *Pool) channelFor(addr string) chan pooledConn {
 	idleList, ok := p.idle[addr]
 	if !ok {
-		idleList = make(chan net.Conn, p.cap)
+		idleList = make(chan pooledConn, p.cap)
 		p.idle[addr] = idleList
 	}
 	return idleList
+}
+
+// DialAlwaysFresh will always attempt to establish
+// a fresh tcp connection to an address, whereas
+// Get() will attempt to reuse a connection first
+func (p *Pool) DialAlwaysFresh(addr string) (net.Conn, error) {
+	log.Printf("POOL: dialing fresh connection to %s", addr)
+	return p.dial("tcp", addr)
 }

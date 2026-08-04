@@ -76,36 +76,55 @@ func forward(pool *Pool, addr, line string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-
-	// bounds how long writing can block
-	if err := conn.SetWriteDeadline(time.Now().Add(writeTimeout)); err != nil {
-		conn.Close()
-		return "", err
-	}
-	if _, err := fmt.Fprintf(conn, "%s\n", line); err != nil {
-		conn.Close() // broke mid write
-		return "", err
+	response, err := forwardOnce(conn, line)
+	if err == nil {
+		pool.Put(addr, conn)
+		return response, nil
 	}
 
-	// bounds how long reading can block
-	if err := conn.SetReadDeadline(time.Now().Add(readTimeout)); err != nil {
-		conn.Close()
-		return "", err
-	}
+	// retrying, first connection failed
+	// so abandon it
+	conn.Close()
 
-	response, err := bufio.NewReader(conn).ReadString('\n')
+	// retry again with a fresh connection
+	conn, err = pool.DialAlwaysFresh(addr)
 	if err != nil {
-		conn.Close() // broke mid read
 		return "", err
 	}
 
-	// reset deadlines
-	if err := conn.SetDeadline(time.Time{}); err != nil {
+	response, err = forwardOnce(conn, line)
+	if err != nil {
 		conn.Close()
 		return "", err
 	}
 
 	pool.Put(addr, conn)
+	return response, nil
+}
+
+func forwardOnce(conn net.Conn, line string) (string, error) {
+	// bounds how long writing can block
+	if err := conn.SetWriteDeadline(time.Now().Add(writeTimeout)); err != nil {
+		return "", err
+	}
+	if _, err := fmt.Fprintf(conn, "%s\n", line); err != nil {
+		return "", err
+	}
+
+	// bounds how long reading can block
+	if err := conn.SetReadDeadline(time.Now().Add(readTimeout)); err != nil {
+		return "", err
+	}
+
+	response, err := bufio.NewReader(conn).ReadString('\n')
+	if err != nil {
+		return "", err
+	}
+
+	// reset deadlines
+	if err := conn.SetDeadline(time.Time{}); err != nil {
+		return "", err
+	}
 	return strings.TrimRight(response, "\n"), nil
 }
 
