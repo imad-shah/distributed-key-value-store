@@ -205,6 +205,7 @@ Every container receives the same configuration file but starts with a different
 - [002: Connection pool for forwarding](decisions/002-connection-pool.md)
 - [003: Quorum semantics](decisions/003-quorum-semantics.md)
 - [004: Replica protocol trust boundary](decisions/004-replica-protocol-boundary.md)
+- [005: Synchronous read repair after all replica responses](decisions/005-synchronous-read-repair.md)
 
 ## Running the tests
 
