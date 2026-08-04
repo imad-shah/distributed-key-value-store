@@ -239,7 +239,7 @@ func coordinateDelete(cmd Command, node *cluster.Node, kv *store.Store, pool *Po
 		}
 	}
 
-	return fmt.Sprintf("error delete quorum not reached: got %d acks, wanted %d", successCount, writeQuorum)
+	return fmt.Sprintf("error delete quorum not reached: got %d acks, want %d", successCount, writeQuorum)
 }
 
 func chooseNewest(responses []replicaReadResponse) (store.VersionedValue, bool) {

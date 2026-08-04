@@ -101,7 +101,6 @@ func TestGetFailsWithOneOfThreeAvailable(t *testing.T) {
 			Timestamp: 500,
 			NodeID:    "node-a",
 		},
-		Tombstone: false,
 	}
 	tc.stores["node-a"].Put("foo", val)
 
@@ -109,6 +108,36 @@ func TestGetFailsWithOneOfThreeAvailable(t *testing.T) {
 	want := "error read quorum not reached: got 1 responses, want 2\n"
 	if response != want {
 		t.Fatalf("Get(%q) got %v, want %v", "foo", response, want)
+	}
+}
+
+func TestDeleteSucceedsWithTwoOfThreeAcks(t *testing.T) {
+	tc := startTestCluster(t, []string{"node-a", "node-b"})
+
+	response := sendCommand(t, tc.addrs["node-a"], "DELETE foo")
+	if response != "OK\n" {
+		t.Fatalf("DELETE foo = %q, want %q", response, "OK\n")
+	}
+
+	for _, nodeID := range []string{"node-a", "node-b"} {
+		got, found := tc.stores[nodeID].Get("foo")
+		if !found {
+			t.Fatalf("%s did not store a tombstone for %q", nodeID, "foo")
+		}
+		if !got.Tombstone {
+			t.Fatalf("%s value = %+v, want tombstone", nodeID, got)
+		}
+	}
+}
+
+func TestDeleteFailsWithOneOfThreeAcks(t *testing.T) {
+	tc := startTestCluster(t, []string{"node-a"})
+
+	response := sendCommand(t, tc.addrs["node-a"], "DELETE foo")
+
+	want := "error delete quorum not reached: got 1 acks, want 2\n"
+	if response != want {
+		t.Fatalf("Delete(%q) got %q, want %q", "foo", response, want)
 	}
 }
 
