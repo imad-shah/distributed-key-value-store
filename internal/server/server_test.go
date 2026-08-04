@@ -73,3 +73,120 @@ func TestServe(t *testing.T) {
 		})
 	}
 }
+func TestClassifyRepair(t *testing.T) {
+	tests := []struct {
+		name   string
+		result replicaReadResult
+		winner store.VersionedValue
+		want   repairState
+	}{
+		{
+			name: "replica missing",
+			result: replicaReadResult{
+				Found: false,
+			},
+			winner: store.VersionedValue{
+				Value: "bar",
+				Version: store.Version{
+					Timestamp: 500,
+					NodeID:    "node-a",
+				},
+			},
+			want: repairMissing,
+		},
+		{
+			name: "replica exactly equals winner",
+			result: replicaReadResult{
+				Value: store.VersionedValue{
+					Value: "bar",
+					Version: store.Version{
+						Timestamp: 500,
+						NodeID:    "node-a",
+					},
+				},
+				Found: true,
+			},
+			winner: store.VersionedValue{
+				Value: "bar",
+				Version: store.Version{
+					Timestamp: 500,
+					NodeID:    "node-a",
+				},
+			},
+			want: repairNotNeeded,
+		},
+		{
+			name: "replica older than winner",
+			result: replicaReadResult{
+				Value: store.VersionedValue{
+					Value: "bar",
+					Version: store.Version{
+						Timestamp: 499,
+						NodeID:    "node-a",
+					},
+				},
+				Found: true,
+			},
+			winner: store.VersionedValue{
+				Value: "bar",
+				Version: store.Version{
+					Timestamp: 500,
+					NodeID:    "node-a",
+				},
+			},
+			want: repairStale,
+		},
+		{
+			name: "same version with different contents",
+			result: replicaReadResult{
+				Value: store.VersionedValue{
+					Value: "baz",
+					Version: store.Version{
+						Timestamp: 500,
+						NodeID:    "node-a",
+					},
+				},
+				Found: true,
+			},
+			winner: store.VersionedValue{
+				Value: "bar",
+				Version: store.Version{
+					Timestamp: 500,
+					NodeID:    "node-a",
+				},
+			},
+			want: repairConflict,
+		},
+		{
+			name: "replica newer than winner",
+			result: replicaReadResult{
+				Value: store.VersionedValue{
+					Value: "bar",
+					Version: store.Version{
+						Timestamp: 501,
+						NodeID:    "node-a",
+					},
+				},
+				Found: true,
+			},
+			winner: store.VersionedValue{
+				Value: "bar",
+				Version: store.Version{
+					Timestamp: 500,
+					NodeID:    "node-a",
+				},
+			},
+			want: repairInvalidWinner,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := classifyRepair(test.result, test.winner)
+
+			if got != test.want {
+				t.Errorf("classifyRepair() = %v, want %v", got, test.want)
+			}
+		})
+	}
+}
