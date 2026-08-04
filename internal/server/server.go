@@ -15,6 +15,8 @@ import (
 	"github.com/imad-shah/distributed-key-value-store/internal/store"
 )
 
+type repairState int
+
 const (
 	replicationFactor = 3
 
@@ -23,6 +25,12 @@ const (
 
 	writeTimeout = 2 * time.Second
 	readTimeout  = 2 * time.Second
+
+	repairNotNeeded repairState = iota
+	repairMissing
+	repairStale
+	repairConflict
+	repairInvalidWinner
 )
 
 // replicaReadResult is one replica read
@@ -159,50 +167,46 @@ func coordinateSet(cmd Command, node *cluster.Node, kv *store.Store, pool *Pool)
 	return fmt.Sprintf("error write quorum not reached: got %d acks, wanted %d", successCount, writeQuorum)
 }
 
+// this function is the most complicated, so writing a few notes on this
 func coordinateGet(cmd Command, node *cluster.Node, kv *store.Store, pool *Pool) string {
+	// gets a list of all of the replicas from node.Replicas()
 	replicas, err := node.Replicas(cmd.Key, replicationFactor)
 	if err != nil {
 		return fmt.Sprintf("err finding replicas: %v", err)
 	}
 
-	responses := make(chan replicaReadResponse, len(replicas))
-	for _, replica := range replicas {
-		go func(r cluster.Replica) {
-			value, found, err := getFromReplica(r, cmd, kv, pool)
-			if err != nil {
-				log.Printf("read key %q from replica %q failed: %v", cmd.Key, r.ID, err)
-			}
-			response := replicaReadResponse{
-				Replica: r,
-				Result: replicaReadResult{
-					Value: value,
-					Found: found,
-				},
-				Err: err,
-			}
-			responses <- response
-		}(replica)
+	// collect all valid responses in a list of replicaReadResponses
+
+	// fetchAllReplicaResponses -> creates a channel, launches 1 read per replica
+	// in a goroutine, awaits all outcomes, filters failure reads, returns valid results
+	validResponses := fetchAllReplicaResponses(replicas, cmd, kv, pool)
+
+	// first verify we're even at readQuorum
+	if len(validResponses) < readQuorum {
+		return fmt.Sprintf(
+			"error read quorum not reached: got %d responses, want %d",
+			len(validResponses),
+			readQuorum,
+		)
 	}
 
-	successfulReplicaReadList := make([]replicaReadResult, 0, readQuorum)
-	for range replicas {
-		replicaResponse := <-responses
-		if replicaResponse.Err == nil {
-			successfulReplicaReadList = append(successfulReplicaReadList, replicaResponse.Result)
-			if len(successfulReplicaReadList) >= readQuorum {
-				winner, found := chooseNewest(successfulReplicaReadList)
-				if !found || winner.Tombstone {
-					return "NOT_FOUND"
-				}
-				return winner.Value
-			}
-		}
+	// elect a winner from the list of valid responses
+	winner, found := chooseNewest(validResponses)
+	if !found {
+		return "NOT_FOUND"
 	}
-	return fmt.Sprintf(
-		"error read quorum not reached: got %d responses, want %d",
-		len(successfulReplicaReadList),
-		readQuorum,
-	)
+
+	// with the winner selected (of type -> VersionValue)
+
+	// iterate over the validResponses and set them to the winner
+	repairAllOutdatedReplicas(cmd.Key, validResponses, winner, kv, pool)
+
+	// once everyone is updated, check if winner was a tombstone, otherwise return its value
+	if winner.Tombstone {
+		return "NOT_FOUND"
+	}
+	return winner.Value
+
 }
 
 func coordinateDelete(cmd Command, node *cluster.Node, kv *store.Store, pool *Pool) string {
@@ -238,16 +242,16 @@ func coordinateDelete(cmd Command, node *cluster.Node, kv *store.Store, pool *Po
 	return fmt.Sprintf("error delete quorum not reached: got %d acks, wanted %d", successCount, writeQuorum)
 }
 
-func chooseNewest(responses []replicaReadResult) (store.VersionedValue, bool) {
+func chooseNewest(responses []replicaReadResponse) (store.VersionedValue, bool) {
 	var winner store.VersionedValue
 	foundWinner := false
 
 	for _, response := range responses {
-		if !response.Found {
+		if !response.Result.Found {
 			continue
 		}
-		if !foundWinner || response.Value.Version.After(winner.Version) {
-			winner = response.Value
+		if !foundWinner || response.Result.Value.Version.After(winner.Version) {
+			winner = response.Result.Value
 			foundWinner = true
 		}
 	}
@@ -437,6 +441,114 @@ func parseReplicaGetResponse(response string) (store.VersionedValue, bool, error
 	default:
 		return store.VersionedValue{}, false, fmt.Errorf("unknown replica response %q", response)
 	}
+}
+
+func fetchAllReplicaResponses(replicas []cluster.Replica, cmd Command, kv *store.Store, pool *Pool) []replicaReadResponse {
+	// creates initial channel
+	responses := make(chan replicaReadResponse, len(replicas))
+
+	// go over the replicas list
+	// fan out and fetch the i-th replica's response with goroutine (populate channel)
+	for _, replica := range replicas {
+		go fetchSingleReplicaResponse(replica, cmd, kv, pool, responses)
+	}
+
+	validResponses := make([]replicaReadResponse, 0, len(replicas))
+	// go over the replicas, pull out one from the channel
+	// as long as it doesnt have any errors, append it to a valid responses list
+	for range replicas {
+		response := <-responses
+		if response.Err == nil {
+			validResponses = append(validResponses, response)
+		}
+	}
+	return validResponses
+}
+
+// performs a read, sends result into a channel
+func fetchSingleReplicaResponse(replica cluster.Replica, cmd Command, kv *store.Store, pool *Pool, responses chan<- replicaReadResponse) {
+	value, found, err := getFromReplica(replica, cmd, kv, pool)
+	if err != nil {
+		log.Printf(
+			"read key %q from replica %q failed: %v",
+			cmd.Key,
+			replica.ID,
+			err,
+		)
+	}
+	responses <- replicaReadResponse{
+		Replica: replica,
+		Result: replicaReadResult{
+			Value: value,
+			Found: found,
+		},
+		Err: err,
+	}
+
+}
+
+func repairAllOutdatedReplicas(key string, responses []replicaReadResponse, winner store.VersionedValue, kv *store.Store, pool *Pool) {
+	for _, response := range responses {
+		state := classifyRepair(response.Result, winner)
+
+		switch state {
+		case repairNotNeeded:
+			continue
+		case repairMissing, repairStale:
+			if err := applyWinnerToReplica(
+				response.Replica,
+				key,
+				winner,
+				kv,
+				pool,
+			); err != nil {
+				log.Printf(
+					"read repair for key %q on replica %q failed: %v",
+					key,
+					response.Replica.ID,
+					err,
+				)
+			}
+		case repairConflict:
+			log.Printf(
+				"read repair conflict for key %q on replica %q: same version, different data",
+				key,
+				response.Replica.ID,
+			)
+		case repairInvalidWinner:
+			log.Printf(
+				"read repair invariant violation for key %q: replica %q has newer value than selected winner",
+				key,
+				response.Replica.ID,
+			)
+		}
+	}
+}
+
+func applyWinnerToReplica(replica cluster.Replica, key string, winner store.VersionedValue, kv *store.Store, pool *Pool) error {
+	if winner.Tombstone {
+		return deleteFromReplica(replica, key, winner, kv, pool)
+	}
+	return setOnReplica(replica, key, winner, kv, pool)
+}
+
+func classifyRepair(result replicaReadResult, winner store.VersionedValue) repairState {
+	if !result.Found {
+		return repairMissing
+	}
+
+	if result.Value == winner {
+		return repairNotNeeded
+	}
+
+	if winner.Version.After(result.Value.Version) {
+		return repairStale
+	}
+
+	if winner.Version.Equal(result.Value.Version) {
+		return repairConflict
+	}
+	return repairInvalidWinner
 }
 
 func StartServer(addr string, node *cluster.Node, kv *store.Store, pool *Pool) {
