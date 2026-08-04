@@ -1,6 +1,6 @@
 # Design Decisions
 
-A log of significant design decisions made during this project. 
+A log of significant design decisions made during this project.
 Each entry captures context, alternatives considered, and thinking process.
 
 ## Index
@@ -14,6 +14,7 @@ Each entry captures context, alternatives considered, and thinking process.
 ## Format
 
 Each decision file follows a rough structure:
+
 - Context / problem being solved
 - Options considered  
 - Decision made
