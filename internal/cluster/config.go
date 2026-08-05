@@ -8,16 +8,22 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-var ErrReadClusterConfig = errors.New("cluster: reading cluster config")
-var ErrParseClusterConfig = errors.New("cluster: parsing cluster config")
-var ErrValidateClusterConfig = errors.New("cluster: validating cluster config")
-var ErrEmptyListenAddress = errors.New("cluster: listen_address is required")
-var ErrEmptyNodes = errors.New("cluster: at least one node is required")
-var ErrEmptyNodeID = errors.New("cluster: node has no ID")
-var ErrEmptyNodeAddress = errors.New("cluster: node has no Address")
-var ErrDuplicateNodeID = errors.New("cluster: duplicate node ID detected")
-var ErrDuplicateNodeAddress = errors.New("cluster: duplicate node Address detected")
-var ErrNodeIDNotFound = errors.New("cluster: node ID not found")
+var (
+	ErrEmptyClientListenAddress  = errors.New("cluster: client_listen_address is required")
+	ErrEmptyReplicaListenAddress = errors.New("cluster: replica_listen_address is required")
+	ErrEmptyNodes                = errors.New("cluster: at least one node is required")
+	ErrEmptyNodeID               = errors.New("cluster: node has no ID")
+	ErrEmptyReplicaAddress       = errors.New("cluster: node has no Address")
+
+	ErrReadClusterConfig                  = errors.New("cluster: reading cluster config")
+	ErrParseClusterConfig                 = errors.New("cluster: parsing cluster config")
+	ErrValidateClusterConfig              = errors.New("cluster: validating cluster config")
+	ErrClientAndReplicaListenAddressEqual = errors.New("cluster: client and replica listen must differ")
+	ErrNodeIDNotFound                     = errors.New("cluster: node ID not found")
+
+	ErrDuplicateNodeID         = errors.New("cluster: duplicate node ID detected")
+	ErrDuplicateReplicaAddress = errors.New("cluster: duplicate node Address detected")
+)
 
 type Config struct {
 	ClientListenAddress  string       `yaml:"client_listen_address"`
@@ -26,7 +32,7 @@ type Config struct {
 }
 
 type NodeConfig struct {
-	ID      string `yaml:"id"`
+	ID             string `yaml:"id"`
 	ReplicaAddress string `yaml:"replica_address"`
 }
 
@@ -49,8 +55,15 @@ func LoadConfig(path string) (Config, error) {
 }
 
 func (cfg Config) Validate() error {
-	if cfg.ListenAddress == "" {
-		return ErrEmptyListenAddress
+	if cfg.ClientListenAddress == "" {
+		return ErrEmptyClientListenAddress
+	}
+	if cfg.ReplicaListenAddress == "" {
+		return ErrEmptyReplicaListenAddress
+	}
+
+	if cfg.ClientListenAddress == cfg.ReplicaListenAddress {
+		return ErrClientAndReplicaListenAddressEqual
 	}
 
 	if len(cfg.Nodes) == 0 {
@@ -58,7 +71,7 @@ func (cfg Config) Validate() error {
 	}
 
 	seenIDs := make(map[string]struct{}, len(cfg.Nodes))
-	seenAddresses := make(map[string]struct{}, len(cfg.Nodes))
+	seenReplicaAddresses := make(map[string]struct{}, len(cfg.Nodes))
 
 	for idx, node := range cfg.Nodes {
 
@@ -66,8 +79,8 @@ func (cfg Config) Validate() error {
 			return fmt.Errorf("%w: node at index %d has no ID", ErrEmptyNodeID, idx)
 		}
 
-		if node.Address == "" {
-			return fmt.Errorf("%w: node %q at index %d", ErrEmptyNodeAddress, node.ID, idx)
+		if node.ReplicaAddress == "" {
+			return fmt.Errorf("%w: node %q at index %d", ErrEmptyReplicaAddress, node.ID, idx)
 		}
 
 		if _, ok := seenIDs[node.ID]; ok {
@@ -75,10 +88,14 @@ func (cfg Config) Validate() error {
 		}
 		seenIDs[node.ID] = struct{}{}
 
-		if _, ok := seenAddresses[node.Address]; ok {
-			return ErrDuplicateNodeAddress
+		if _, ok := seenReplicaAddresses[node.ReplicaAddress]; ok {
+			return fmt.Errorf(
+				"%w: %q",
+				ErrDuplicateReplicaAddress,
+				node.ReplicaAddress,
+			)
 		}
-		seenAddresses[node.Address] = struct{}{}
+		seenReplicaAddresses[node.ReplicaAddress] = struct{}{}
 	}
 	return nil
 }

@@ -7,9 +7,10 @@ import (
 
 func TestConfigValidate(t *testing.T) {
 	cfg := Config{
-		ListenAddress: ":8080",
+		ClientListenAddress:  ":8080",
+		ReplicaListenAddress: ":9090",
 		Nodes: []NodeConfig{
-			{ID: "node-a", Address: "node-a:8080"},
+			{ID: "node-a", ReplicaAddress: "node-a:9090"},
 		},
 	}
 
@@ -25,64 +26,92 @@ func TestConfigValidateErrors(t *testing.T) {
 		want error
 	}{
 		{
-			name: "missing listen address",
+			name: "missing client listen address",
 			cfg: Config{
-				ListenAddress: "",
+				ClientListenAddress:  "",
+				ReplicaListenAddress: ":9090",
 				Nodes: []NodeConfig{
-					{ID: "node-a", Address: "node-a:8080"},
+					{ID: "node-a", ReplicaAddress: "node-a:9090"},
 				},
 			},
-			want: ErrEmptyListenAddress,
+			want: ErrEmptyClientListenAddress,
 		},
 		{
-			name: "no nodes",
+			name: "missing replica listen address",
 			cfg: Config{
-				ListenAddress: ":8080",
-				Nodes:         []NodeConfig{},
+				ClientListenAddress:  ":8080",
+				ReplicaListenAddress: "",
+				Nodes: []NodeConfig{
+					{ID: "node-a", ReplicaAddress: "node-a:9090"},
+				},
+			},
+			want: ErrEmptyReplicaListenAddress,
+		},
+		{
+			name: "client and replica listen addresses are identical",
+			cfg: Config{
+				ClientListenAddress:  ":8080",
+				ReplicaListenAddress: ":8080",
+				Nodes: []NodeConfig{
+					{ID: "node-a", ReplicaAddress: "node-a:9090"},
+				},
+			},
+			want: ErrClientAndReplicaListenAddressEqual,
+		},
+		{
+			name: "no nodes given",
+			cfg: Config{
+				ClientListenAddress:  ":8080",
+				ReplicaListenAddress: ":9090",
+				Nodes:                []NodeConfig{},
 			},
 			want: ErrEmptyNodes,
 		},
 		{
 			name: "empty node ID",
 			cfg: Config{
-				ListenAddress: ":8080",
+				ClientListenAddress:  ":8080",
+				ReplicaListenAddress: ":9090",
 				Nodes: []NodeConfig{
-					{ID: "", Address: "node-a:8080"},
+					{ID: "", ReplicaAddress: "node-a:9090"},
 				},
 			},
 			want: ErrEmptyNodeID,
 		},
 		{
-			name: "empty node Address",
+			name: "empty replica node Address",
 			cfg: Config{
-				ListenAddress: ":8080",
+				ClientListenAddress:  ":8080",
+				ReplicaListenAddress: ":9090",
 				Nodes: []NodeConfig{
-					{ID: "node-a", Address: ""},
+					{ID: "node-a", ReplicaAddress: ""},
 				},
 			},
-			want: ErrEmptyNodeAddress,
+			want: ErrEmptyReplicaAddress,
 		},
 		{
 			name: "duplicate node ID",
 			cfg: Config{
-				ListenAddress: ":8080",
+				ClientListenAddress:  ":8080",
+				ReplicaListenAddress: ":9090",
 				Nodes: []NodeConfig{
-					{ID: "node-a", Address: "node-a:8080"},
-					{ID: "node-a", Address: "node-a:8082"},
+					{ID: "node-a", ReplicaAddress: "node-a:9090"},
+					{ID: "node-a", ReplicaAddress: "node-a:9091"},
 				},
 			},
 			want: ErrDuplicateNodeID,
 		},
 		{
-			name: "duplicate node address",
+			name: "duplicate repica node address",
 			cfg: Config{
-				ListenAddress: ":8080",
+				ClientListenAddress:  ":8080",
+				ReplicaListenAddress: ":9090",
 				Nodes: []NodeConfig{
-					{ID: "node-a", Address: "node-a:8080"},
-					{ID: "node-b", Address: "node-a:8080"},
+					{ID: "node-a", ReplicaAddress: "node-a:9090"},
+					{ID: "node-b", ReplicaAddress: "node-a:9090"},
 				},
 			},
-			want: ErrDuplicateNodeAddress,
+			want: ErrDuplicateReplicaAddress,
 		},
 	}
 
