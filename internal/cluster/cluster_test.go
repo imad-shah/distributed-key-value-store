@@ -2,8 +2,9 @@ package cluster
 
 import (
 	"errors"
-	"github.com/imad-shah/distributed-key-value-store/internal/hashring"
 	"testing"
+
+	"github.com/imad-shah/distributed-key-value-store/internal/hashring"
 )
 
 const (
@@ -29,8 +30,8 @@ func TestOwnerAddr(t *testing.T) {
 		wantAddr   string
 		wantIsSelf bool
 	}{
-		{"self", "foo", "node-a:8080", true},
-		{"peer", "bar", "node-b:8080", false},
+		{"self", "foo", "node-a:9090", true},
+		{"peer", "bar", "node-b:9090", false},
 	}
 
 	for _, test := range tests {
@@ -141,20 +142,23 @@ func TestReplicasTooMany(t *testing.T) {
 }
 
 func TestNewFromConfig(t *testing.T) {
-	cfg := Config{ListenAddress: ":8080", Nodes: []NodeConfig{
-		{
-			ID:      "node-a",
-			Address: "node-a:8080",
+	cfg := Config{
+		ClientListenAddress:  ":8080",
+		ReplicaListenAddress: ":9090",
+		Nodes: []NodeConfig{
+			{
+				ID:             "node-a",
+				ReplicaAddress: "node-a:9090",
+			},
+			{
+				ID:             "node-b",
+				ReplicaAddress: "node-b:9090",
+			},
+			{
+				ID:             "node-c",
+				ReplicaAddress: "node-c:9090",
+			},
 		},
-		{
-			ID:      "node-b",
-			Address: "node-b:8080",
-		},
-		{
-			ID:      "node-c",
-			Address: "node-c:8080",
-		},
-	},
 	}
 
 	ring := hashring.New(vNodes)
@@ -170,14 +174,11 @@ func TestNewFromConfig(t *testing.T) {
 	if node.id != id {
 		t.Fatalf("node id = %q, want %q", node.id, id)
 	}
-	if node.addr != cfg.ListenAddress {
-		t.Fatalf("node address %q does not match listen address %q", node.addr, cfg.ListenAddress)
-	}
 
 	wantAddress := map[string]string{
-		"node-a": "node-a:8080",
-		"node-b": "node-b:8080",
-		"node-c": "node-c:8080",
+		"node-a": "node-a:9090",
+		"node-b": "node-b:9090",
+		"node-c": "node-c:9090",
 	}
 
 	for nodeID, wantAddr := range wantAddress {
@@ -219,9 +220,13 @@ func TestNewFromConfig(t *testing.T) {
 
 func TestNewNodeFromConfigMissingID(t *testing.T) {
 	cfg := Config{
-		ListenAddress: ":8080",
+		ClientListenAddress:  ":8080",
+		ReplicaListenAddress: ":9090",
 		Nodes: []NodeConfig{
-			{ID: "node-a", Address: "node-a:8080"},
+			{
+				ID:             "node-a",
+				ReplicaAddress: "node-a:9090",
+			},
 		},
 	}
 
@@ -243,11 +248,12 @@ func TestNewNodeFromConfigMissingID(t *testing.T) {
 
 func newTestConfig() Config {
 	return Config{
-		ListenAddress: ":8080",
+		ClientListenAddress:  ":8080",
+		ReplicaListenAddress: ":9090",
 		Nodes: []NodeConfig{
-			{ID: "node-a", Address: "node-a:8080"},
-			{ID: "node-b", Address: "node-b:8080"},
-			{ID: "node-c", Address: "node-c:8080"},
+			{ID: "node-a", ReplicaAddress: "node-a:9090"},
+			{ID: "node-b", ReplicaAddress: "node-b:9090"},
+			{ID: "node-c", ReplicaAddress: "node-c:9090"},
 		},
 	}
 }

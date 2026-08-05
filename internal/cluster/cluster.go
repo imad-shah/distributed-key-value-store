@@ -8,7 +8,6 @@ import (
 
 type Node struct {
 	id       string
-	addr     string
 	members  map[string]struct{}
 	addrBook map[string]string
 	ring     *hashring.Ring
@@ -27,7 +26,7 @@ func NewNodeFromConfig(id string, cfg Config, ring *hashring.Ring) (*Node, error
 
 	for _, node := range cfg.Nodes {
 		members[node.ID] = struct{}{}
-		addrBook[node.ID] = node.Address
+		addrBook[node.ID] = node.ReplicaAddress
 
 		if node.ID == id {
 			found = true
@@ -44,7 +43,6 @@ func NewNodeFromConfig(id string, cfg Config, ring *hashring.Ring) (*Node, error
 
 	return &Node{
 		id:       id,
-		addr:     cfg.ListenAddress,
 		members:  members,
 		addrBook: addrBook,
 		ring:     ring,
