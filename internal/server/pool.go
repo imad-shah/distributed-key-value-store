@@ -46,6 +46,7 @@ func (p *Pool) Get(addr string) (net.Conn, error) {
 				pooled.conn.Close()
 				continue
 			}
+			log.Printf("POOL: reusing cached connection to %s", addr)
 			return pooled.conn, nil
 		default:
 			return p.DialAlwaysFresh(addr)
