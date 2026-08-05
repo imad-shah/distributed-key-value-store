@@ -20,6 +20,8 @@ The store currently supports:
 - synchronous read repair
 - stale pooled-connection retry
 - idle connection expiration
+- separate client and replica TCP listeners
+- client/replica protocol isolation
 
 A client can connect to any node. That node acts as the coordinator for the
 request, finds the replicas responsible for the key, and communicates with
@@ -62,8 +64,9 @@ The timestamp is used to choose the newest value during quorum reads. The node
 ID is used as a deterministic tie-breaker when two versions have the same
 timestamp.
 
-The server accepts each TCP connection in its own goroutine and speaks a
-simple line-based client protocol:
+Each node runs two TCP listeners.
+
+The `client listener` accepts:
 
 ```text
 SET key value    -> OK
@@ -72,14 +75,19 @@ DELETE key       -> OK
 <bad input>      -> error <reason>
 ```
 
-Client commands do not contain replication metadata. The node receiving the
-request creates the version and then sends internal commands to the replicas:
+The `replica listener` accepts:
 
 ```text
 REPLICA_SET key timestamp nodeID value
 REPLICA_GET key
 REPLICA_DELETE key timestamp nodeID
 ```
+
+Commands sent to the wrong listener are rejected. A client can connect to the `client listener` of any node. The node receiving the request becomes the coordinator for that request.
+
+Client commands do not contain replication metadata. The coordinator creates
+the record version and sends internal commands to the replica listeners of the
+nodes selected by the hash ring.
 
 Internal `GET` responses include one of these three stored versions:
 
@@ -220,29 +228,31 @@ All nodes load the same cluster definition from `config/cluster.yaml`.
 Example:
 
 ```text
-listen_address: ":8080"
+client_listen_address: ":8080"
+replica_listen_address: ":9090"
 
 nodes:
   - id: node-a
-    address: node-a:8080
+    replica_address: node-a:9090
   - id: node-b
-    address: node-b:8080
+    replica_address: node-b:9090
   - id: node-c
-    address: node-c:8080
+    replica_address: node-c:9090
 ```
 
-`listen_address` is the local address each server binds to inside its container.
+`client_listen_address` is the local address used for client commands.
 
-Each address under `nodes` is the advertised address other nodes use to reach that server over the Docker Compose network.
+`replica_listen_address` is the local address used for internal replica commands.
 
-Every container receives the same configuration file but starts with a different `--id` value.
+Each node's `replica_address` is the Docker network address that other nodes use to
+reach it.
 
 ## Decisions
 
 - [001: Virtual nodes and FNV-1a prefix ordering](decisions/001-virtual-nodes.md)
 - [002: Connection pool for forwarding](decisions/002-connection-pool.md)
 - [003: Quorum semantics](decisions/003-quorum-semantics.md)
-- [004: Replica protocol trust boundary](decisions/004-replica-protocol-boundary.md)
+- [004: Separate client and replica protocol listeners](decisions/004-separate-client-replica-listeners.md)
 - [005: Synchronous read repair after all replica responses](decisions/005-synchronous-read-repair.md)
 
 ## Running the tests
@@ -269,23 +279,25 @@ To start, run:
 docker compose -f docker/compose.yaml up --build
 ```
 
-The debugging port mappings are:
+The client port mappings are:
 
 ```text
-localhost:8080 -> node-a:8080
-localhost:8081 -> node-b:8080
-localhost:8082 -> node-c:8080
+localhost:8080 -> node-a client listener
+localhost:8081 -> node-b client listener
+localhost:8082 -> node-c client listener
 ```
+All three nodes listen for client commands on `port 8080` inside their own
+containers.
 
-All three nodes listen on port 8080 inside their own containers. The different host ports allow each node to be contacted directly during development.
+Each node also listens for internal replica commands on `port 9090`. These replica ports are available only inside the Docker Compose network and are not published to the host.
 
-Connect to any node:
+Once the servers are running, connect to a server:
 
 ```bash
 nc localhost 8080 # node-a
 ```
 
-You can also connect directly to other nodes:
+Alternatively: 
 
 ```bash
 nc localhost 8081 # node-b
@@ -300,8 +312,6 @@ GET foo
 DELETE foo
 GET foo
 ```
-
-The node receiving the client command acts as the coordinator. It finds the three replicas for the key, sends the operation to those replicas, and returns success after the required quorum is reached.
 
 ### Running in the background
 
