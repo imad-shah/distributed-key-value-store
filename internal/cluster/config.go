@@ -20,13 +20,14 @@ var ErrDuplicateNodeAddress = errors.New("cluster: duplicate node Address detect
 var ErrNodeIDNotFound = errors.New("cluster: node ID not found")
 
 type Config struct {
-	ListenAddress string       `yaml:"listen_address"`
-	Nodes         []NodeConfig `yaml:"nodes"`
+	ClientListenAddress  string       `yaml:"client_listen_address"`
+	ReplicaListenAddress string       `yaml:"replica_listen_address"`
+	Nodes                []NodeConfig `yaml:"nodes"`
 }
 
 type NodeConfig struct {
 	ID      string `yaml:"id"`
-	Address string `yaml:"address"`
+	ReplicaAddress string `yaml:"replica_address"`
 }
 
 func LoadConfig(path string) (Config, error) {

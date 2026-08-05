@@ -1,12 +1,13 @@
 # yaml-language-server: $schema=none
-listen_address: ":8080"
+client_listen_address: ":8080"
+replica_listen_address: ":9090"
 
 nodes:
   - id: node-a
-    address: node-a:8080
+    replica_address: node-a:9090
 
   - id: node-b
-    address: node-b:8080
+    replica_address: node-b:9090
 
   - id: node-c
-    address: node-c:8080
+    replica_address: node-c:9090
