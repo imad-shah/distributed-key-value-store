@@ -148,7 +148,6 @@ func writeLine(w io.Writer, s string) {
 	}
 }
 
-
 func handleClientCommand(cmd Command, node *cluster.Node, kv *store.Store, pool *Pool) string {
 	switch cmd.Type {
 	case CmdGet:
@@ -164,7 +163,6 @@ func handleClientCommand(cmd Command, node *cluster.Node, kv *store.Store, pool 
 		return "error command not allowed on client interface"
 	}
 }
-
 
 func handleReplicaCommand(cmd Command, kv *store.Store) string {
 	if !isReplicaCommand(cmd.Type) {
@@ -623,6 +621,7 @@ func StartServers(clientAddr, replicaAddr string, node *cluster.Node, kv *store.
 }
 
 type connectionHandler func(net.Conn)
+
 func acceptLoop(listener net.Listener, handler connectionHandler) {
 	for {
 		conn, err := listener.Accept()
