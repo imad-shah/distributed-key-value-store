@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 )
+
 func TestServeReplicaCommands(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -21,7 +22,7 @@ func TestServeReplicaCommands(t *testing.T) {
 		},
 		{
 			name:  "replica set + replica get",
-			input: "REPLICA_SET foo 500 node-a bar\nREPLICA_GET foo",
+			input: "REPLICA_SET foo 500 node-a bar\nREPLICA_GET foo\n",
 			want:  "OK\nVALUE 500 node-a bar\n",
 		},
 		{
@@ -59,22 +60,18 @@ func TestServeClientRejectsReplicaCommands(t *testing.T) {
 	tests := []struct {
 		name  string
 		input string
-		want  string
 	}{
 		{
 			name:  "reject replica get",
 			input: "REPLICA_GET foo\n",
-			want:  "error command not allowed on client interface\n",
 		},
 		{
 			name:  "reject replica set",
 			input: "REPLICA_SET foo 500 node-a bar\n",
-			want:  "error command not allowed on client interface\n",
 		},
 		{
 			name:  "reject replica delete",
 			input: "REPLICA_DELETE foo 600 node-a\n",
-			want:  "error command not allowed on client interface\n",
 		},
 	}
 
@@ -105,13 +102,53 @@ func TestServeClientRejectsReplicaCommands(t *testing.T) {
 				func(cmd Command) string { return handleClientCommand(cmd, node, kv, pool) },
 			)
 
-			if got := output.String(); got != test.want {
+			want := "error command not allowed on client interface\n"
+			if got := output.String(); got != want {
 				t.Errorf(
 					"serve(%q) = %q, want %q",
 					test.input,
 					got,
-					test.want,
+					want,
 				)
+			}
+		})
+	}
+}
+func TestReplicaInterfaceRejectsClientCommands(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{
+			name:  "reject get",
+			input: "GET foo\n",
+		},
+		{
+			name:  "reject set",
+			input: "SET foo bar\n",
+		},
+		{
+			name:  "reject delete",
+			input: "DELETE foo\n",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			kv := store.New()
+			var output bytes.Buffer
+
+			serve(
+				strings.NewReader(test.input),
+				&output,
+				func(cmd Command) string {
+					return handleReplicaCommand(cmd, kv)
+				},
+			)
+
+			want := "error command not allowed on replica interface\n"
+			if got := output.String(); got != want {
+				t.Fatalf("got %q, want %q", got, want)
 			}
 		})
 	}
@@ -208,6 +245,48 @@ func TestClassifyRepair(t *testing.T) {
 					Version: store.Version{
 						Timestamp: 501,
 						NodeID:    "node-a",
+					},
+				},
+				Found: true,
+			},
+			winner: store.VersionedValue{
+				Value: "bar",
+				Version: store.Version{
+					Timestamp: 500,
+					NodeID:    "node-a",
+				},
+			},
+			want: repairInvalidWinner,
+		},
+		{
+			name: "same timestamp with replica lower NodeID",
+			result: replicaReadResult{
+				Value: store.VersionedValue{
+					Value: "bar",
+					Version: store.Version{
+						Timestamp: 500,
+						NodeID:    "node-a",
+					},
+				},
+				Found: true,
+			},
+			winner: store.VersionedValue{
+				Value: "bar",
+				Version: store.Version{
+					Timestamp: 500,
+					NodeID:    "node-b",
+				},
+			},
+			want: repairStale,
+		},
+		{
+			name: "same timestamp with replica higher NodeID",
+			result: replicaReadResult{
+				Value: store.VersionedValue{
+					Value: "bar",
+					Version: store.Version{
+						Timestamp: 500,
+						NodeID:    "node-b",
 					},
 				},
 				Found: true,
