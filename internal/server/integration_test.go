@@ -57,7 +57,7 @@ func TestQuorumReplication(t *testing.T) {
 	replicaListenerC, replicaAddrC := createListener(t)
 
 	cfg := cluster.Config{
-		ClientListenAddress: clientAddrA,
+		ClientListenAddress:  clientAddrA,
 		ReplicaListenAddress: replicaAddrA,
 		Nodes: []cluster.NodeConfig{
 			{ID: "node-a", ReplicaAddress: replicaAddrA},
@@ -79,21 +79,21 @@ func TestQuorumReplication(t *testing.T) {
 
 	go acceptLoop(
 		clientListenerA,
-		func (conn net.Conn) { handleClientConnection(conn, nodeA, storeA, poolA) },
+		func(conn net.Conn) { handleClientConnection(conn, nodeA, storeA, poolA) },
 	)
 
 	go acceptLoop(
 		replicaListenerA,
-		func (conn net.Conn) { handleReplicaConnection(conn, storeA) },
+		func(conn net.Conn) { handleReplicaConnection(conn, storeA) },
 	)
 
 	go acceptLoop(
 		replicaListenerB,
-		func (conn net.Conn) { handleReplicaConnection(conn, storeB) },
+		func(conn net.Conn) { handleReplicaConnection(conn, storeB) },
 	)
 	go acceptLoop(
 		replicaListenerC,
-		func (conn net.Conn) { handleReplicaConnection(conn, storeC) },
+		func(conn net.Conn) { handleReplicaConnection(conn, storeC) },
 	)
 
 	conn, err := net.Dial("tcp", clientAddrA)

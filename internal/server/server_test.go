@@ -8,35 +8,73 @@ import (
 	"strings"
 	"testing"
 )
-
-func TestServe(t *testing.T) {
+func TestServeReplicaCommands(t *testing.T) {
 	tests := []struct {
 		name  string
 		input string
 		want  string
 	}{
 		{
-			name:  "getNothing",
-			input: "REPLICA_GET foo\n",
+			name:  "replica get missing key",
+			input: "REPLICA_GET food29md921d12d129n\n",
 			want:  "NOT_FOUND\n",
 		},
 		{
-			name: "get",
-			input: "REPLICA_SET foo 500 node-a bar\n" +
-				"REPLICA_GET foo\n",
-			want: "OK\n" +
-				"VALUE 500 node-a bar\n",
+			name:  "replica set + replica get",
+			input: "REPLICA_SET foo 500 node-a bar\nREPLICA_GET foo",
+			want:  "OK\nVALUE 500 node-a bar\n",
 		},
 		{
-			name: "delete",
-			input: "REPLICA_SET foo 500 node-a bar\n" +
-				"REPLICA_GET foo\n" +
-				"REPLICA_DELETE foo 600 node-a\n" +
-				"REPLICA_GET foo\n",
-			want: "OK\n" +
-				"VALUE 500 node-a bar\n" +
-				"OK\n" +
-				"TOMBSTONE 600 node-a\n",
+			name:  "replica delete + replica get",
+			input: "REPLICA_SET foo 500 node-a bar\nREPLICA_DELETE foo 600 node-a\nREPLICA_GET foo\n",
+			want:  "OK\nOK\nTOMBSTONE 600 node-a\n",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			kv := store.New()
+			input := strings.NewReader(test.input)
+			var output bytes.Buffer
+
+			serve(
+				input,
+				&output,
+				func(cmd Command) string {
+					return handleReplicaCommand(cmd, kv)
+				},
+			)
+
+			if got := output.String(); got != test.want {
+				t.Errorf(
+					"serve(%q) = %q, want %q",
+					test.input,
+					got,
+					test.want,
+				)
+			}
+		})
+	}
+}
+func TestServeClientRejectsReplicaCommands(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "reject replica get",
+			input: "REPLICA_GET foo\n",
+			want:  "error command not allowed on client interface\n",
+		},
+		{
+			name:  "reject replica set",
+			input: "REPLICA_SET foo 500 node-a bar\n",
+			want:  "error command not allowed on client interface\n",
+		},
+		{
+			name:  "reject replica delete",
+			input: "REPLICA_DELETE foo 600 node-a\n",
+			want:  "error command not allowed on client interface\n",
 		},
 	}
 
@@ -49,9 +87,10 @@ func TestServe(t *testing.T) {
 
 			ring := hashring.New(256)
 			cfg := cluster.Config{
-				ListenAddress: ":8080",
+				ClientListenAddress:  ":8080",
+				ReplicaListenAddress: ":9090",
 				Nodes: []cluster.NodeConfig{
-					{ID: "test-node", Address: "test-node:8080"},
+					{ID: "test-node", ReplicaAddress: "test-node:8080"},
 				},
 			}
 
@@ -60,7 +99,11 @@ func TestServe(t *testing.T) {
 				t.Fatalf("error creating node from config: %v", err)
 			}
 
-			serve(input, &output, node, kv, pool)
+			serve(
+				input,
+				&output,
+				func(cmd Command) string { return handleClientCommand(cmd, node, kv, pool) },
+			)
 
 			if got := output.String(); got != test.want {
 				t.Errorf(
