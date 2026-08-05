@@ -38,11 +38,13 @@ func main() {
 	}
 	kv := store.New()
 	pool := server.NewPool(8)
-	server.StartServers(
+	if err := server.StartServers(
 		cfg.ClientListenAddress,
 		cfg.ReplicaListenAddress,
 		node,
 		kv,
 		pool,
-	)
+	); err != nil {
+		log.Fatalf("server stopped: %v", err)
+	}
 }

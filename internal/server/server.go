@@ -587,20 +587,20 @@ func classifyRepair(result replicaReadResult, winner store.VersionedValue) repai
 	return repairInvalidWinner
 }
 
-func StartServers(clientAddr, replicaAddr string, node *cluster.Node, kv *store.Store, pool *Pool) {
+func StartServers(clientAddr, replicaAddr string, node *cluster.Node, kv *store.Store, pool *Pool) error {
 	network := "tcp"
 
 	clientListener, err := net.Listen(network, clientAddr)
 	if err != nil {
 		log.Printf("error starting client listener: %v", err)
-		return
+		return err
 	}
 
 	replicaListener, err := net.Listen(network, replicaAddr)
 	if err != nil {
 		clientListener.Close()
 		log.Printf("error starting replica listener: %v", err)
-		return
+		return err
 	}
 	defer clientListener.Close()
 	defer replicaListener.Close()
@@ -615,19 +615,25 @@ func StartServers(clientAddr, replicaAddr string, node *cluster.Node, kv *store.
 
 	log.Printf("client listener active on %s", clientListener.Addr())
 	log.Printf("replica listener active on %s", replicaListener.Addr())
+	errCh := make(chan error, 2)
 
-	go acceptLoop(clientListener, clientHandler)
-	go acceptLoop(replicaListener, replicaHandler)
+	go func() {
+		errCh <- fmt.Errorf("client listener: %w", acceptLoop(clientListener, clientHandler))
+	}()
+	go func() {
+		errCh <- fmt.Errorf("replica listener: %w", acceptLoop(replicaListener, replicaHandler))
+	}()
+	return <-errCh
 }
 
 type connectionHandler func(net.Conn)
 
-func acceptLoop(listener net.Listener, handler connectionHandler) {
+func acceptLoop(listener net.Listener, handler connectionHandler) error {
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
 			if errors.Is(err, net.ErrClosed) {
-				return
+				return nil
 			}
 
 			log.Printf("error accepting connection: %v", err)
