@@ -15,28 +15,16 @@ import (
 func TestFullLoopReplicaCommands(t *testing.T) {
 	t.Parallel()
 	// Create a listener on any port
-	listener, addr := createListener(t)
+	replicaListener, addr := createListener(t)
+	kv := store.New()
+
 	// Run accept loop on listener
-	ring := hashring.New(256)
-	cfg := cluster.Config{
-		ListenAddress: addr,
-		Nodes: []cluster.NodeConfig{
-			{ID: "test-node", Address: addr},
-		},
-	}
-	node, err := cluster.NewNodeFromConfig(
-		"test-node",
-		cfg,
-		ring,
+	go acceptLoop(
+		replicaListener,
+		func(conn net.Conn) { handleReplicaConnection(conn, kv) },
 	)
 
-	if err != nil {
-		t.Fatalf("error creating node from config: %v", err)
-	}
-
-	go acceptLoop(listener, node, store.New(), NewPool(8))
-
-	// Dial in as client
+	// Dial the replica listener
 	conn, err := net.Dial("tcp", addr)
 	if err != nil {
 		t.Fatalf("failed to dial: %v", err)
@@ -61,41 +49,54 @@ func TestFullLoopReplicaCommands(t *testing.T) {
 
 func TestQuorumReplication(t *testing.T) {
 	t.Parallel()
-	listenerA, addrA := createListener(t)
-	listenerB, addrB := createListener(t)
-	listenerC, addrC := createListener(t)
+
+	clientListenerA, clientAddrA := createListener(t)
+
+	replicaListenerA, replicaAddrA := createListener(t)
+	replicaListenerB, replicaAddrB := createListener(t)
+	replicaListenerC, replicaAddrC := createListener(t)
+
 	cfg := cluster.Config{
-		ListenAddress: ":0",
+		ClientListenAddress: clientAddrA,
+		ReplicaListenAddress: replicaAddrA,
 		Nodes: []cluster.NodeConfig{
-			{ID: "node-a", Address: addrA},
-			{ID: "node-b", Address: addrB},
-			{ID: "node-c", Address: addrC},
+			{ID: "node-a", ReplicaAddress: replicaAddrA},
+			{ID: "node-b", ReplicaAddress: replicaAddrB},
+			{ID: "node-c", ReplicaAddress: replicaAddrC},
 		},
 	}
+
 	nodeA, err := cluster.NewNodeFromConfig("node-a", cfg, hashring.New(256))
 	if err != nil {
 		t.Fatalf("create node-a: %v", err)
-	}
-
-	nodeB, err := cluster.NewNodeFromConfig("node-b", cfg, hashring.New(256))
-	if err != nil {
-		t.Fatalf("create node-b: %v", err)
-	}
-
-	nodeC, err := cluster.NewNodeFromConfig("node-c", cfg, hashring.New(256))
-	if err != nil {
-		t.Fatalf("create node-c: %v", err)
 	}
 
 	storeA := store.New()
 	storeB := store.New()
 	storeC := store.New()
 
-	go acceptLoop(listenerA, nodeA, storeA, NewPool(8))
-	go acceptLoop(listenerB, nodeB, storeB, NewPool(8))
-	go acceptLoop(listenerC, nodeC, storeC, NewPool(8))
+	poolA := NewPool(8)
 
-	conn, err := net.Dial("tcp", addrA)
+	go acceptLoop(
+		clientListenerA,
+		func (conn net.Conn) { handleClientConnection(conn, nodeA, storeA, poolA) },
+	)
+
+	go acceptLoop(
+		replicaListenerA,
+		func (conn net.Conn) { handleReplicaConnection(conn, storeA) },
+	)
+
+	go acceptLoop(
+		replicaListenerB,
+		func (conn net.Conn) { handleReplicaConnection(conn, storeB) },
+	)
+	go acceptLoop(
+		replicaListenerC,
+		func (conn net.Conn) { handleReplicaConnection(conn, storeC) },
+	)
+
+	conn, err := net.Dial("tcp", clientAddrA)
 	if err != nil {
 		t.Fatalf("failed to dial: %v", err)
 	}
