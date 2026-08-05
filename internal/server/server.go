@@ -47,22 +47,36 @@ type replicaReadResponse struct {
 	Err     error
 }
 
-func handleConnection(conn net.Conn, node *cluster.Node, kv *store.Store, pool *Pool) {
+func handleClientConnection(conn net.Conn, node *cluster.Node, kv *store.Store, pool *Pool) {
 	defer conn.Close()
-	serve(conn, conn, node, kv, pool)
+
+	serve(conn, conn, func(cmd Command) string {
+		return handleClientCommand(cmd, node, kv, pool)
+	})
 }
 
-func serve(r io.Reader, w io.Writer, node *cluster.Node, kv *store.Store, pool *Pool) {
+func handleReplicaConnection(conn net.Conn, kv *store.Store) {
+	defer conn.Close()
+
+	serve(conn, conn, func(cmd Command) string {
+		return handleReplicaCommand(cmd, kv)
+	})
+}
+
+type commandHandler func(Command) string
+
+func serve(r io.Reader, w io.Writer, handler commandHandler) {
 	scanner := bufio.NewScanner(r)
 
 	for scanner.Scan() {
 		line := scanner.Text()
+
 		cmd, err := Parse(line)
 		if err != nil {
 			writeLine(w, fmt.Sprintf("parse error %v", err))
 			continue
 		}
-		response := handleCommand(cmd, node, kv, pool)
+		response := handler(cmd)
 		writeLine(w, response)
 	}
 	if err := scanner.Err(); err != nil {
@@ -134,11 +148,8 @@ func writeLine(w io.Writer, s string) {
 	}
 }
 
-func handleCommand(cmd Command, node *cluster.Node, kv *store.Store, pool *Pool) string {
-	if isReplicaCommand(cmd.Type) {
-		return executeLocal(cmd, kv)
-	}
 
+func handleClientCommand(cmd Command, node *cluster.Node, kv *store.Store, pool *Pool) string {
 	switch cmd.Type {
 	case CmdGet:
 		return coordinateGet(cmd, node, kv, pool)
@@ -150,8 +161,16 @@ func handleCommand(cmd Command, node *cluster.Node, kv *store.Store, pool *Pool)
 		return coordinateDelete(cmd, node, kv, pool)
 
 	default:
-		return "error unsupported command"
+		return "error command not allowed on client interface"
 	}
+}
+
+
+func handleReplicaCommand(cmd Command, kv *store.Store) string {
+	if !isReplicaCommand(cmd.Type) {
+		return "error command not allowed on replica interface"
+	}
+	return executeLocal(cmd, kv)
 }
 
 func coordinateSet(cmd Command, node *cluster.Node, kv *store.Store, pool *Pool) string {
@@ -570,20 +589,41 @@ func classifyRepair(result replicaReadResult, winner store.VersionedValue) repai
 	return repairInvalidWinner
 }
 
-func StartServer(addr string, node *cluster.Node, kv *store.Store, pool *Pool) {
+func StartServers(clientAddr, replicaAddr string, node *cluster.Node, kv *store.Store, pool *Pool) {
 	network := "tcp"
-	listener, err := net.Listen(network, addr)
+
+	clientListener, err := net.Listen(network, clientAddr)
 	if err != nil {
-		log.Printf("error connecting to server: %v", err)
+		log.Printf("error starting client listener: %v", err)
 		return
 	}
 
-	defer listener.Close()
-	log.Printf("Listening on %s", listener.Addr())
-	acceptLoop(listener, node, kv, pool)
+	replicaListener, err := net.Listen(network, replicaAddr)
+	if err != nil {
+		clientListener.Close()
+		log.Printf("error starting replica listener: %v", err)
+		return
+	}
+	defer clientListener.Close()
+	defer replicaListener.Close()
 
+	clientHandler := func(conn net.Conn) {
+		handleClientConnection(conn, node, kv, pool)
+	}
+
+	replicaHandler := func(conn net.Conn) {
+		handleReplicaConnection(conn, kv)
+	}
+
+	log.Printf("client listener active on %s", clientListener.Addr())
+	log.Printf("replica listener active on %s", replicaListener.Addr())
+
+	go acceptLoop(clientListener, clientHandler)
+	go acceptLoop(replicaListener, replicaHandler)
 }
-func acceptLoop(listener net.Listener, node *cluster.Node, kv *store.Store, pool *Pool) {
+
+type connectionHandler func(net.Conn)
+func acceptLoop(listener net.Listener, handler connectionHandler) {
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
@@ -594,6 +634,6 @@ func acceptLoop(listener net.Listener, node *cluster.Node, kv *store.Store, pool
 			log.Printf("error accepting connection: %v", err)
 			continue
 		}
-		go handleConnection(conn, node, kv, pool)
+		go handler(conn)
 	}
 }

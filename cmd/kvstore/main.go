@@ -38,5 +38,11 @@ func main() {
 	}
 	kv := store.New()
 	pool := server.NewPool(8)
-	server.StartServer(cfg.ListenAddress, node, kv, pool)
+	server.StartServers(
+		cfg.ClientListenAddress,
+		cfg.ReplicaListenAddress,
+		node,
+		kv,
+		pool,
+	)
 }
