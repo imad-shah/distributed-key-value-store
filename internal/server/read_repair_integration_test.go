@@ -106,7 +106,7 @@ func TestGetRepairsReplica(t *testing.T) {
 
 			response := sendCommand(
 				t,
-				tc.addrs["node-a"],
+				tc.clientAddrs["node-a"],
 				"GET color",
 			)
 
