@@ -49,7 +49,7 @@ func TestSetFailsWithOneOfThreeAcks(t *testing.T) {
 	tc := startTestCluster(t, []string{"node-a"})
 
 	response := sendCommand(t, tc.clientAddrs["node-a"], "SET foo bar")
-	want := "error write quorum not reached: got 1 acks, wanted 2\n"
+	want := "error write quorum not reached: got 1 acks, want 2\n"
 	if response != want {
 		t.Errorf("SET response = %q, want %q", response, want)
 	}

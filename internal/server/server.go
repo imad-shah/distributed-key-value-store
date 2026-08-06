@@ -200,7 +200,7 @@ func coordinateSet(cmd Command, node *cluster.Node, kv *store.Store, pool *Pool)
 		}
 	}
 
-	return fmt.Sprintf("error write quorum not reached: got %d acks, wanted %d", successCount, writeQuorum)
+	return fmt.Sprintf("error write quorum not reached: got %d acks, want %d", successCount, writeQuorum)
 }
 
 // this function is the most complicated, so writing a few notes on this

@@ -9,6 +9,7 @@ import (
 
 const (
 	idleTimeout = 30 * time.Second
+	dialTimeout = 500 * time.Millisecond
 )
 
 type dialFunction func(network, address string) (net.Conn, error)
@@ -29,7 +30,9 @@ func NewPool(capacity int) *Pool {
 	return &Pool{
 		idle: make(map[string]chan pooledConn),
 		cap:  capacity,
-		dial: net.Dial,
+		dial: func (network, address string) (net.Conn, error) {
+			return net.DialTimeout(network, address, dialTimeout)
+		},
 	}
 }
 
