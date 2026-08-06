@@ -143,6 +143,89 @@ func TestMalformedReplicaReadDoesNotCountTowardQuorum(t *testing.T) {
 		t.Fatalf("GET foo = %q, want %q", response, want)
 	}
 }
+func TestFailedDeleteRetainsLocalTombstone(t *testing.T) {
+	t.Parallel()
+	clientListenerA, clientAddrA := createListener(t)
+
+	replicaListenerA, replicaAddrA := createListener(t)
+	replicaListenerB, replicaAddrB := createListener(t)
+	replicaListenerC, replicaAddrC := createListener(t)
+
+	// node-c is down
+	replicaListenerB.Close()
+	replicaListenerC.Close()
+
+	cfg := cluster.Config{
+		ClientListenAddress:  clientAddrA,
+		ReplicaListenAddress: replicaAddrA,
+		Nodes: []cluster.NodeConfig{
+			{ID: "node-a", ReplicaAddress: replicaAddrA},
+			{ID: "node-b", ReplicaAddress: replicaAddrB},
+			{ID: "node-c", ReplicaAddress: replicaAddrC},
+		},
+	}
+
+	nodeA, err := cluster.NewNodeFromConfig(
+		"node-a",
+		cfg,
+		hashring.New(256),
+	)
+	if err != nil {
+		t.Fatalf("create node-a: %v", err)
+	}
+
+	storeA := store.New()
+	poolA := NewPool(8)
+
+	go acceptLoop(
+		replicaListenerA,
+		func(conn net.Conn) {
+			handleReplicaConnection(conn, storeA)
+		},
+	)
+
+	go acceptLoop(
+		clientListenerA,
+		func(conn net.Conn) {
+			handleClientConnection(conn, nodeA, storeA, poolA)
+		},
+	)
+
+	conn, err := net.Dial("tcp", clientAddrA)
+	if err != nil {
+		t.Fatalf("failed to dial client listener: %v", err)
+	}
+	defer conn.Close()
+
+	if err := conn.SetReadDeadline(
+		time.Now().Add(3 * time.Second),
+	); err != nil {
+		t.Fatalf("set read deadline: %v", err)
+	}
+
+	reader := bufio.NewReader(conn)
+
+	fmt.Fprintln(conn, "DELETE foo")
+
+	response, err := reader.ReadString('\n')
+	if err != nil {
+		t.Fatalf("read DELETE response: %v", err)
+	}
+
+	want := "error delete quorum not reached: got 1 acks, want 2\n"
+	if response != want {
+		t.Fatalf("DELETE foo = %q, want %q", response, want)
+	}
+
+	got, found := storeA.Get("foo")
+	if !found {
+		t.Fatal("node-a did not retain the accepted write")
+	}
+
+	if !got.Tombstone {
+		t.Fatalf("node-a has tombstone set to false")
+	}
+}
 func TestStaleReplicaWriteDoesNotCountTowardQuorum(t *testing.T) {
 	t.Parallel()
 	clientListenerA, clientAddrA := createListener(t)

@@ -1,9 +1,14 @@
 package server
 
 import (
+	"bufio"
+	"fmt"
+	"net"
 	"testing"
 	"time"
 
+	"github.com/imad-shah/distributed-key-value-store/internal/cluster"
+	"github.com/imad-shah/distributed-key-value-store/internal/hashring"
 	"github.com/imad-shah/distributed-key-value-store/internal/store"
 )
 
@@ -140,5 +145,174 @@ func TestGetRepairsReplica(t *testing.T) {
 			}
 
 		})
+	}
+}
+
+func TestLateNewerReplicaResponseRepairsInitialQuorum(t *testing.T) {
+	t.Parallel()
+
+	clientListenerA, clientAddrA := createListener(t)
+
+	replicaListenerA, replicaAddrA := createListener(t)
+	replicaListenerB, replicaAddrB := createListener(t)
+	replicaListenerC, replicaAddrC := createListener(t)
+
+	cfg := cluster.Config{
+		ClientListenAddress:  clientAddrA,
+		ReplicaListenAddress: replicaAddrA,
+		Nodes: []cluster.NodeConfig{
+			{ID: "node-a", ReplicaAddress: replicaAddrA},
+			{ID: "node-b", ReplicaAddress: replicaAddrB},
+			{ID: "node-c", ReplicaAddress: replicaAddrC},
+		},
+	}
+
+	nodeA, err := cluster.NewNodeFromConfig(
+		"node-a",
+		cfg,
+		hashring.New(256),
+	)
+	if err != nil {
+		t.Fatalf("create node-a: %v", err)
+	}
+
+	storeA := store.New()
+	storeB := store.New()
+	poolA := NewPool(8)
+
+	oldValue := store.VersionedValue{
+		Value: "old",
+		Version: store.Version{
+			Timestamp: 199,
+			NodeID:    "node-a",
+		},
+	}
+
+	newValue := store.VersionedValue{
+		Value: "new",
+		Version: store.Version{
+			Timestamp: 200,
+			NodeID:    "node-c",
+		},
+	}
+
+	if ok := storeA.Put("foo", oldValue); !ok {
+		t.Fatal("failed to seed node-a")
+	}
+
+	if ok := storeB.Put("foo", oldValue); !ok {
+		t.Fatal("failed to seed node-b")
+	}
+
+	go acceptLoop(
+		clientListenerA,
+		func(conn net.Conn) {
+			handleClientConnection(conn, nodeA, storeA, poolA)
+		},
+	)
+
+	go acceptLoop(
+		replicaListenerA,
+		func(conn net.Conn) {
+			handleReplicaConnection(conn, storeA)
+		},
+	)
+
+	go acceptLoop(
+		replicaListenerB,
+		func(conn net.Conn) {
+			handleReplicaConnection(conn, storeB)
+		},
+	)
+
+	releaseNodeC := make(chan struct{})
+	go acceptLoop(
+		replicaListenerC,
+		func(conn net.Conn) {
+			defer conn.Close()
+
+			scanner := bufio.NewScanner(conn)
+			for scanner.Scan() {
+				<-releaseNodeC
+				fmt.Fprintln(conn, "VALUE 200 node-c new")
+			}
+		},
+	)
+
+	conn, err := net.Dial("tcp", clientAddrA)
+	if err != nil {
+		t.Fatalf("failed to dial client listener: %v", err)
+	}
+	defer conn.Close()
+
+	if err := conn.SetReadDeadline(
+		time.Now().Add(3 * time.Second),
+	); err != nil {
+		t.Fatalf("set read deadline: %v", err)
+	}
+
+	reader := bufio.NewReader(conn)
+
+	fmt.Fprintln(conn, "GET foo")
+
+	response, err := reader.ReadString('\n')
+	if err != nil {
+		t.Fatalf("read GET response: %v", err)
+	}
+
+	if response != "old\n" {
+		t.Fatalf("GET foo = %q, want %q", response, "old\n")
+	}
+
+	gotA, foundA := storeA.Get("foo")
+	if !foundA {
+		t.Fatal("node-a missing foo before late response")
+	}
+	if gotA != oldValue {
+		t.Fatalf(
+			"node-a value before late response = %+v, want %+v",
+			gotA,
+			oldValue,
+		)
+	}
+
+	gotB, foundB := storeB.Get("foo")
+	if !foundB {
+		t.Fatal("node-b missing foo before late response")
+	}
+	if gotB != oldValue {
+		t.Fatalf(
+			"node-b value before late response = %+v, want %+v",
+			gotB,
+			oldValue,
+		)
+	}
+
+	close(releaseNodeC)
+
+	deadline := time.Now().Add(2 * time.Second)
+
+	for {
+		gotA, foundA = storeA.Get("foo")
+		gotB, foundB = storeB.Get("foo")
+
+		if foundA &&
+			foundB &&
+			gotA == newValue &&
+			gotB == newValue {
+			break
+		}
+
+		if time.Now().After(deadline) {
+			t.Fatalf(
+				"background repair did not complete: node-a=%+v found=%v, node-b=%+v found=%v",
+				gotA,
+				foundA,
+				gotB,
+				foundB,
+			)
+		}
+
+		time.Sleep(10 * time.Millisecond)
 	}
 }
