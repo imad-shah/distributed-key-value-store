@@ -480,42 +480,78 @@ func formatReplicaGetResponse(value store.VersionedValue) string {
 		value.Value,
 	)
 }
-
-func parseReplicaGetResponse(response string) (store.VersionedValue, bool, error) {
+func parseReplicaGetResponse(
+	response string,
+) (store.VersionedValue, bool, error) {
 	if response == "NOT_FOUND" {
 		return store.VersionedValue{}, false, nil
 	}
 
 	kind, rest := splitFirst(response)
+	switch kind {
+	case "VALUE":
+		version, value, err := parseReplicaVersion(rest, response)
+		if err != nil {
+			return store.VersionedValue{}, false, err
+		}
+		if value == "" {
+			return store.VersionedValue{}, false,
+				fmt.Errorf("malformed VALUE response %q", response)
+		}
+		return store.VersionedValue{
+			Value:   value,
+			Version: version,
+		}, true, nil
+
+	case "TOMBSTONE":
+		version, extra, err := parseReplicaVersion(rest, response)
+		if err != nil {
+			return store.VersionedValue{}, false, err
+		}
+		if extra != "" {
+			return store.VersionedValue{}, false,
+				fmt.Errorf(
+					"malformed TOMBSTONE response %q",
+					response,
+				)
+		}
+		return store.VersionedValue{
+			Version:   version,
+			Tombstone: true,
+		}, true, nil
+
+	default:
+		return store.VersionedValue{}, false,
+			fmt.Errorf("unknown replica response %q", response)
+	}
+}
+
+func parseReplicaVersion(
+	rest string,
+	response string,
+) (store.Version, string, error) {
 	timestampStr, rest := splitFirst(rest)
-	nodeID, value := splitFirst(rest)
+	nodeID, remaining := splitFirst(rest)
+
+	if timestampStr == "" || nodeID == "" {
+		return store.Version{}, "",
+			fmt.Errorf("malformed replica response %q", response)
+	}
 
 	timestamp, err := strconv.ParseInt(timestampStr, 10, 64)
 	if err != nil {
-		return store.VersionedValue{}, false, fmt.Errorf("invalid timestamp %q: %w", timestampStr, err)
+		return store.Version{}, "",
+			fmt.Errorf(
+				"invalid timestamp %q: %w",
+				timestampStr,
+				err,
+			)
 	}
 
-	switch kind {
-	case "VALUE":
-		return store.VersionedValue{
-			Value: value,
-			Version: store.Version{
-				Timestamp: timestamp,
-				NodeID:    nodeID,
-			},
-			Tombstone: false,
-		}, true, nil
-	case "TOMBSTONE":
-		return store.VersionedValue{
-			Version: store.Version{
-				Timestamp: timestamp,
-				NodeID:    nodeID,
-			},
-			Tombstone: true,
-		}, true, nil
-	default:
-		return store.VersionedValue{}, false, fmt.Errorf("unknown replica response %q", response)
-	}
+	return store.Version{
+		Timestamp: timestamp,
+		NodeID:    nodeID,
+	}, remaining, nil
 }
 
 // read the requested key from one local or remote replica
