@@ -9,8 +9,8 @@ import (
 )
 
 var (
-	ErrEmptyRing = errors.New("hashring: ring is empty")
-	ErrServerNotFound = errors.New("hashring: server not found")
+	ErrEmptyRing       = errors.New("hashring: ring is empty")
+	ErrServerNotFound  = errors.New("hashring: server not found")
 	ErrTooManyReplicas = errors.New("hashring: too many replicas, not enough servers")
 	ErrDuplicateServer = errors.New("hashring: duplicate server detected")
 )

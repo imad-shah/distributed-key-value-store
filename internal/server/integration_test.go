@@ -107,6 +107,9 @@ func TestMalformedReplicaReadDoesNotCountTowardQuorum(t *testing.T) {
 			for scanner.Scan() {
 				fmt.Fprintln(conn, "TOMBSTONE 100")
 			}
+			if err := scanner.Err(); err != nil {
+				t.Errorf("scan replica connection: %v", err)
+			}
 		},
 	)
 
@@ -274,6 +277,9 @@ func TestStaleReplicaWriteDoesNotCountTowardQuorum(t *testing.T) {
 			scanner := bufio.NewScanner(conn)
 			for scanner.Scan() {
 				fmt.Fprintln(conn, "STALE")
+			}
+			if err := scanner.Err(); err != nil {
+				t.Errorf("scan replica connection: %v", err)
 			}
 		},
 	)
