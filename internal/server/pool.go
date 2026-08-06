@@ -30,7 +30,7 @@ func NewPool(capacity int) *Pool {
 	return &Pool{
 		idle: make(map[string]chan pooledConn),
 		cap:  capacity,
-		dial: func (network, address string) (net.Conn, error) {
+		dial: func(network, address string) (net.Conn, error) {
 			return net.DialTimeout(network, address, dialTimeout)
 		},
 	}

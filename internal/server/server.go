@@ -203,21 +203,32 @@ func coordinateSet(cmd Command, node *cluster.Node, kv *store.Store, pool *Pool)
 	return fmt.Sprintf("error write quorum not reached: got %d acks, want %d", successCount, writeQuorum)
 }
 
-// this function is the most complicated, so writing a few notes on this
+// fan out reads to all replicas
+// wait until read quorum valid responses come back (or all replicas respond)
+// return the newest quorum value
+// keep collecting responses and repairing replicas in the background
+
 func coordinateGet(cmd Command, node *cluster.Node, kv *store.Store, pool *Pool) string {
-	// gets a list of all of the replicas from node.Replicas()
 	replicas, err := node.Replicas(cmd.Key, replicationFactor)
 	if err != nil {
 		return fmt.Sprintf("err finding replicas: %v", err)
 	}
 
-	// collect all valid responses in a list of replicaReadResponses
+	responses := fetchReplicaResponses(replicas, cmd, kv, pool)
+	validResponses := make([]replicaReadResponse, 0, len(replicas))
+	got := 0
 
-	// fetchAllReplicaResponses -> creates a channel, launches 1 read per replica
-	// in a goroutine, awaits all outcomes, filters failure reads, returns valid results
-	validResponses := fetchAllReplicaResponses(replicas, cmd, kv, pool)
+	for got < len(replicas) && len(validResponses) < readQuorum {
+		response := <-responses
+		got++
 
-	// first verify we're even at readQuorum
+		if response.Err != nil {
+			continue
+		}
+
+		validResponses = append(validResponses, response)
+	}
+
 	if len(validResponses) < readQuorum {
 		return fmt.Sprintf(
 			"error read quorum not reached: got %d responses, want %d",
@@ -225,24 +236,49 @@ func coordinateGet(cmd Command, node *cluster.Node, kv *store.Store, pool *Pool)
 			readQuorum,
 		)
 	}
-
-	// elect a winner from the list of valid responses
 	winner, found := chooseNewest(validResponses)
-	if !found {
-		return "NOT_FOUND"
-	}
+	initialResponses := append([]replicaReadResponse(nil), validResponses...)
 
-	// with the winner selected (of type -> VersionValue)
+	go finishReadRepair(cmd.Key, responses, len(replicas)-got, initialResponses, kv, pool)
 
-	// iterate over the validResponses and set them to the winner
-	repairAllOutdatedReplicas(cmd.Key, validResponses, winner, kv, pool)
-
-	// once everyone is updated, check if winner was a tombstone, otherwise return its value
-	if winner.Tombstone {
+	if !found || winner.Tombstone {
 		return "NOT_FOUND"
 	}
 	return winner.Value
 
+}
+
+// collect the replica outcomes that were not consumed before quorum
+// add every valid result to the initial quorum responses
+// select the final winner using all valid replica responses
+// repair replicas that are missing or contain an older record
+func finishReadRepair(key string, responses <-chan replicaReadResponse, remaining int, validResponses []replicaReadResponse, kv *store.Store, pool *Pool) {
+	for range remaining {
+		response := <-responses
+
+		if response.Err != nil {
+			continue
+		}
+		validResponses = append(validResponses, response)
+	}
+
+	winner, found := chooseNewest(validResponses)
+	if !found {
+		return
+	}
+	repairAllOutdatedReplicas(key, validResponses, winner, kv, pool)
+}
+
+// create a channel
+// start a concurrent read for each replica
+// return the channel back immediately to coordinateGet()
+func fetchReplicaResponses(replicas []cluster.Replica, cmd Command, kv *store.Store, pool *Pool) <-chan replicaReadResponse {
+	responses := make(chan replicaReadResponse, len(replicas))
+
+	for _, replica := range replicas {
+		go fetchSingleReplicaResponse(replica, cmd, kv, pool, responses)
+	}
+	return responses
 }
 
 func coordinateDelete(cmd Command, node *cluster.Node, kv *store.Store, pool *Pool) string {
@@ -278,6 +314,9 @@ func coordinateDelete(cmd Command, node *cluster.Node, kv *store.Store, pool *Po
 	return fmt.Sprintf("error delete quorum not reached: got %d acks, want %d", successCount, writeQuorum)
 }
 
+// compare versions of all found records
+// **ignore replicas that don't have a record
+// return the newest record and whether there was even one found
 func chooseNewest(responses []replicaReadResponse) (store.VersionedValue, bool) {
 	var winner store.VersionedValue
 	foundWinner := false
@@ -479,29 +518,9 @@ func parseReplicaGetResponse(response string) (store.VersionedValue, bool, error
 	}
 }
 
-func fetchAllReplicaResponses(replicas []cluster.Replica, cmd Command, kv *store.Store, pool *Pool) []replicaReadResponse {
-	// creates initial channel
-	responses := make(chan replicaReadResponse, len(replicas))
-
-	// go over the replicas list
-	// fan out and fetch the i-th replica's response with goroutine (populate channel)
-	for _, replica := range replicas {
-		go fetchSingleReplicaResponse(replica, cmd, kv, pool, responses)
-	}
-
-	validResponses := make([]replicaReadResponse, 0, len(replicas))
-	// go over the replicas, pull out one from the channel
-	// as long as it doesnt have any errors, append it to a valid responses list
-	for range replicas {
-		response := <-responses
-		if response.Err == nil {
-			validResponses = append(validResponses, response)
-		}
-	}
-	return validResponses
-}
-
-// performs a read, sends result into a channel
+// read the requested key from one local or remote replica
+// log any network or protocol failure
+// send the replica identity, stored value, and error to the response channel
 func fetchSingleReplicaResponse(replica cluster.Replica, cmd Command, kv *store.Store, pool *Pool, responses chan<- replicaReadResponse) {
 	value, found, err := getFromReplica(replica, cmd, kv, pool)
 	if err != nil {
@@ -523,6 +542,9 @@ func fetchSingleReplicaResponse(replica cluster.Replica, cmd Command, kv *store.
 
 }
 
+// compare every valid replica response with the final winner
+// **skip replicas that already contain the winner
+// apply the winner to missing or stale replicas
 func repairAllOutdatedReplicas(key string, responses []replicaReadResponse, winner store.VersionedValue, kv *store.Store, pool *Pool) {
 	for _, response := range responses {
 		state := classifyRepair(response.Result, winner)

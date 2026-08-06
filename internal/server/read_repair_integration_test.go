@@ -2,6 +2,7 @@ package server
 
 import (
 	"testing"
+	"time"
 
 	"github.com/imad-shah/distributed-key-value-store/internal/store"
 )
@@ -118,18 +119,26 @@ func TestGetRepairsReplica(t *testing.T) {
 				)
 			}
 
-			got, found := tc.stores["node-c"].Get("color")
-			if !found {
-				t.Fatal("node-c did not contain the repaired record")
+			deadline := time.Now().Add(2 * time.Second)
+			for {
+				got, found := tc.stores["node-c"].Get("color")
+				if found && got == test.winner {
+					break
+				}
+
+				if time.Now().After(deadline) {
+					if !found {
+						t.Fatal("node-c did not contain the repaired record before timeout")
+					}
+					t.Fatalf(
+						"node-c value = %+v, want %+v before timeout",
+						got,
+						test.winner,
+					)
+				}
+				time.Sleep(10 * time.Millisecond)
 			}
 
-			if got != test.winner {
-				t.Fatalf(
-					"node-c value = %+v, want %+v",
-					got,
-					test.winner,
-				)
-			}
 		})
 	}
 }
