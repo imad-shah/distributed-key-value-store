@@ -41,3 +41,69 @@ services:
       - "../config/cluster.yaml:/config/cluster.yaml:ro"
     ports:
       - "8082:8080"
+  node-d:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    command:
+      - "--id"
+      - "node-d"
+      - "--config"
+      - "/config/cluster.yaml"
+    volumes:
+      - "../config/cluster.yaml:/config/cluster.yaml:ro"
+    ports:
+      - "8083:8080"
+  node-e:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    command:
+      - "--id"
+      - "node-e"
+      - "--config"
+      - "/config/cluster.yaml"
+    volumes:
+      - "../config/cluster.yaml:/config/cluster.yaml:ro"
+    ports:
+      - "8084:8080"
+  node-f:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    command:
+      - "--id"
+      - "node-f"
+      - "--config"
+      - "/config/cluster.yaml"
+    volumes:
+      - "../config/cluster.yaml:/config/cluster.yaml:ro"
+    ports:
+      - "8085:8080"
+  node-g:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    command:
+      - "--id"
+      - "node-g"
+      - "--config"
+      - "/config/cluster.yaml"
+    volumes:
+      - "../config/cluster.yaml:/config/cluster.yaml:ro"
+    ports:
+      - "8086:8080"
+
+  node-h:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    command:
+      - "--id"
+      - "node-h"
+      - "--config"
+      - "/config/cluster.yaml"
+    volumes:
+      - "../config/cluster.yaml:/config/cluster.yaml:ro"
+    ports:
+      - "8087:8080"

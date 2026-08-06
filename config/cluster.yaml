@@ -11,3 +11,18 @@ nodes:
 
   - id: node-c
     replica_address: node-c:9090
+
+  - id: node-d
+    replica_address: node-d:9090
+
+  - id: node-e
+    replica_address: node-e:9090
+
+  - id: node-f
+    replica_address: node-f:9090
+
+  - id: node-g
+    replica_address: node-g:9090
+
+  - id: node-h
+    replica_address: node-h:9090
