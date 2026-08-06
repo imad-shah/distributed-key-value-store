@@ -8,10 +8,12 @@ import (
 	"sync"
 )
 
-var ErrEmptyRing = errors.New("hashring: ring is empty")
-var ErrServerNotFound = errors.New("hashring: server not found")
-var ErrTooManyReplicas = errors.New("hashring: too many replicas, not enough servers")
-var ErrDuplicateServer = errors.New("hashring: duplicate server detected")
+var (
+	ErrEmptyRing = errors.New("hashring: ring is empty")
+	ErrServerNotFound = errors.New("hashring: server not found")
+	ErrTooManyReplicas = errors.New("hashring: too many replicas, not enough servers")
+	ErrDuplicateServer = errors.New("hashring: duplicate server detected")
+)
 
 type Ring struct {
 	mu      sync.RWMutex
