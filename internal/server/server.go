@@ -663,13 +663,8 @@ func StartServers(clientAddr, replicaAddr string, node *cluster.Node, kv *store.
 	defer clientListener.Close()
 	defer replicaListener.Close()
 
-	clientHandler := func(conn net.Conn) {
-		handleClientConnection(conn, node, kv, pool)
-	}
-
-	replicaHandler := func(conn net.Conn) {
-		handleReplicaConnection(conn, kv)
-	}
+	clientHandler := func(conn net.Conn) { handleClientConnection(conn, node, kv, pool) }
+	replicaHandler := func(conn net.Conn) { handleReplicaConnection(conn, kv) }
 
 	log.Printf("client listener active on %s", clientListener.Addr())
 	log.Printf("replica listener active on %s", replicaListener.Addr())
