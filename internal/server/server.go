@@ -236,8 +236,10 @@ func coordinateGet(cmd Command, node *cluster.Node, kv *store.Store, pool *Pool)
 			readQuorum,
 		)
 	}
+
 	winner, found := chooseNewest(validResponses)
 	initialResponses := append([]replicaReadResponse(nil), validResponses...)
+	// ... expands slice into individual arguments
 
 	go finishReadRepair(cmd.Key, responses, len(replicas)-got, initialResponses, kv, pool)
 
