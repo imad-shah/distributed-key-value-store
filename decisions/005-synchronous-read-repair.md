@@ -1,5 +1,7 @@
 # 005: Synchronous Read Repair After All Replica Responses
 
+> Superseded by [006: Asynchronous Read Repair After Read Quorum](006-asynchronous-read-repair.md)
+
 ## Context
 
 The store uses replication factor `N = 3` and read quorum `R = 2`.
