@@ -258,6 +258,7 @@ reach it.
 - [003: Quorum semantics](decisions/003-quorum-semantics.md)
 - [004: Separate client and replica protocol listeners](decisions/004-separate-client-replica-listeners.md)
 - [005: Synchronous read repair after all replica responses](decisions/005-synchronous-read-repair.md)
+- [006: Asynchronous Read Repair After Read Quorum](decisions/006-asynchronous-read-repair.md)
 
 ## Running the tests
 
