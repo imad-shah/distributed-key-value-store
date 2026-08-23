@@ -142,6 +142,7 @@ func TestDeleteFailsWithOneOfThreeAcks(t *testing.T) {
 	}
 }
 
+// specifically testing that forward() against a peer returns a timeout error
 func TestForwardTimesOutWaitingForResponse(t *testing.T) {
 	listener, addr := createListener(t)
 	release := make(chan struct{})
@@ -162,6 +163,131 @@ func TestForwardTimesOutWaitingForResponse(t *testing.T) {
 
 	if !errors.Is(err, os.ErrDeadlineExceeded) {
 		t.Fatalf("expected ErrDeadlineExceeded, got: %v", err)
+	}
+}
+
+func TestQuorumFailsOnTimeout(t *testing.T) {
+	t.Parallel()
+
+	clientListenerA, clientAddrA := createListener(t)
+
+	replicaListenerA, replicaAddrA := createListener(t)
+	replicaListenerB, replicaAddrB := createListener(t)
+	replicaListenerC, replicaAddrC := createListener(t)
+
+	// node-c is down
+	replicaListenerC.Close()
+
+	cfg := cluster.Config{
+		ClientListenAddress:  clientAddrA,
+		ReplicaListenAddress: replicaAddrA,
+		Nodes: []cluster.NodeConfig{
+			{ID: "node-a", ReplicaAddress: replicaAddrA},
+			{ID: "node-b", ReplicaAddress: replicaAddrB},
+			{ID: "node-c", ReplicaAddress: replicaAddrC},
+		},
+	}
+
+	nodeA, err := cluster.NewNodeFromConfig(
+		"node-a",
+		cfg,
+		hashring.New(256),
+	)
+	if err != nil {
+		t.Fatalf("create node-a: %v", err)
+	}
+
+	storeA := store.New()
+	poolA := NewPool(8)
+
+	val := store.VersionedValue{
+		Value: "bar",
+		Version: store.Version{
+			Timestamp: 100,
+			NodeID:    "node-a",
+		},
+	}
+
+	if ok := storeA.Put("foo", val); !ok {
+		t.Fatal("failed to seed node-a")
+	}
+
+	go acceptLoop(
+		clientListenerA,
+		func(conn net.Conn) {
+			handleClientConnection(conn, nodeA, storeA, poolA)
+		},
+	)
+
+	go acceptLoop(
+		replicaListenerA,
+		func(conn net.Conn) {
+			handleReplicaConnection(conn, storeA)
+		},
+	)
+
+	// node-b will block indefinitely
+	releaseB := make(chan struct{})
+	go acceptLoop(
+		replicaListenerB,
+		func(conn net.Conn) {
+			defer conn.Close()
+
+			reader := bufio.NewReader(conn)
+
+			if _, err := reader.ReadString('\n'); err != nil {
+				return
+			}
+
+			<-releaseB
+		},
+	)
+
+	t.Cleanup(func() {
+		close(releaseB)
+	})
+
+	conn, err := net.Dial("tcp", clientAddrA)
+	if err != nil {
+		t.Fatalf("failed to dial client listener: %v", err)
+	}
+	defer conn.Close()
+
+	deadline := 5 * time.Second
+	if err := conn.SetReadDeadline(
+		time.Now().Add(deadline),
+	); err != nil {
+		t.Fatalf("set read deadline: %v", err)
+	}
+
+	reader := bufio.NewReader(conn)
+	start := time.Now()
+
+	fmt.Fprintln(conn, "GET foo")
+	want := "error read quorum not reached: got 1 responses, want 2\n"
+
+	response, err := reader.ReadString('\n')
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatalf("read GET response after %v: %v", elapsed, err)
+	}
+
+	if response != want {
+		t.Fatalf(
+			"GET(%q) got %q, want %q",
+			"foo",
+			response,
+			want,
+		)
+	}
+
+	if elapsed > deadline {
+		t.Fatalf(
+			"GET(%q) took %v, exceeded deadline %v",
+			"foo",
+			elapsed,
+			deadline,
+		)
 	}
 }
 
