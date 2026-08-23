@@ -17,7 +17,7 @@ The store currently supports:
 - connection pooling between nodes
 - concurrent replica fanout
 - network read and write deadlines
-- synchronous read repair
+- asynchronous read repair after read quorum
 - stale pooled-connection retry
 - idle connection expiration
 - separate client and replica TCP listeners
@@ -117,35 +117,39 @@ All replicas receive the same timestamp and coordinator node ID.
 ## Reads
 
 For a `GET`, the coordinator sends reads to all 3 replicas concurrently and
-waits for all replica outcomes.
+waits for all replica outcomes
 
-Responses that complete without a network or protocol error count toward the
-read quorum. At least 2 valid responses are required.
+Only responses that complete without a network/protocol error count toward the
+read quorum. At least 2 valid responses are required
 
-The coordinator chooses the newest `VersionedValue` from the valid responses,
-then repairs replicas that are missing the winner or contain an older version.
+As soon as the coordinator has `R = 2` valid responses, it selects the newest
+record from those responses and returns it to the client (remaining replica responses are still collected in the background)
 
-Read repair is currently synchronous, so the coordinator waits for repair attempts
-to finish before returning to the client.
+After all remaining outcomes arrive, the coordinator selects the newest record
+again from every valid response. If that final winner is newer than
+what some replicas contain, those stale/missing replicas are repaired
+asynchronously
+
+**Note:** This means the client may receive a value from the first quorum, even if a slower
+replica later has a newer version
 
 If the winning record is a tombstone, the client receives `NOT_FOUND`.
 
-This design favors simple and complete repair logic over minimum read
-latency. A future version may return after `R` valid responses and continue
-repair asynchronously.
+Replicas that fail to return a valid read response are not repaired during that
+request because their current state is unknown.
 
-Example:
+**Example:**
 
 ```text
 node-a -> baz @ time 200
-node-b -> baz @ time 200
+node-b -> baz @ time 200 
 
 node-c -> bar @ time 100
 ```
 
 `GET foo` returns `baz` because it has the newer version.
 
-Note: A missing value and a tombstone are different
+**Note:** A missing value and a tombstone are different
 
 ```text
 missing key:
