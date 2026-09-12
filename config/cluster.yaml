@@ -3,26 +3,26 @@ client_listen_address: ":8080"
 replica_listen_address: ":9090"
 
 nodes:
-  - id: node-a
+  - id: 3fb21a70-0b5b-47b3-beb4-dc9588889d71
     replica_address: node-a:9090
 
-  - id: node-b
+  - id: b31558ec-23ec-4be8-92c2-df30efc6dadc
     replica_address: node-b:9090
 
-  - id: node-c
+  - id: 8e91e2ff-b054-49ad-b0e9-5dc2ee5df23b
     replica_address: node-c:9090
 
-  - id: node-d
+  - id: f08e67a9-b269-460a-a148-e94c1ea3e78c
     replica_address: node-d:9090
 
-  - id: node-e
+  - id: c928759e-81a2-432c-b8c3-ef4242557893
     replica_address: node-e:9090
 
-  - id: node-f
+  - id: 745cee2f-a42f-4515-89ae-7d5de5a8e296
     replica_address: node-f:9090
 
-  - id: node-g
+  - id: eb8d1323-5bee-4a07-831a-0f1226ee12c9
     replica_address: node-g:9090
 
-  - id: node-h
+  - id: 2479c22e-2536-40e2-a439-130334b00d75
     replica_address: node-h:9090

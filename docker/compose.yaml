@@ -5,22 +5,22 @@ services:
       dockerfile: docker/Dockerfile
     command:
       - "--id"
-      - "node-a"
+      - "3fb21a70-0b5b-47b3-beb4-dc9588889d71"
       - "--config"
       - "/config/cluster.yaml"
-    # mount the cluster file here 
-    # so changing it doesnt rebuild everything
+    # Mount the cluster config so changes don't require rebuilding.
     volumes:
       - "../config/cluster.yaml:/config/cluster.yaml:ro"
     ports:
       - "8080:8080"
+
   node-b:
     build:
       context: ..
       dockerfile: docker/Dockerfile
     command:
       - "--id"
-      - "node-b"
+      - "b31558ec-23ec-4be8-92c2-df30efc6dadc"
       - "--config"
       - "/config/cluster.yaml"
     volumes:
@@ -34,59 +34,63 @@ services:
       dockerfile: docker/Dockerfile
     command:
       - "--id"
-      - "node-c"
+      - "8e91e2ff-b054-49ad-b0e9-5dc2ee5df23b"
       - "--config"
       - "/config/cluster.yaml"
     volumes:
       - "../config/cluster.yaml:/config/cluster.yaml:ro"
     ports:
       - "8082:8080"
+
   node-d:
     build:
       context: ..
       dockerfile: docker/Dockerfile
     command:
       - "--id"
-      - "node-d"
+      - "f08e67a9-b269-460a-a148-e94c1ea3e78c"
       - "--config"
       - "/config/cluster.yaml"
     volumes:
       - "../config/cluster.yaml:/config/cluster.yaml:ro"
     ports:
       - "8083:8080"
+
   node-e:
     build:
       context: ..
       dockerfile: docker/Dockerfile
     command:
       - "--id"
-      - "node-e"
+      - "c928759e-81a2-432c-b8c3-ef4242557893"
       - "--config"
       - "/config/cluster.yaml"
     volumes:
       - "../config/cluster.yaml:/config/cluster.yaml:ro"
     ports:
       - "8084:8080"
+
   node-f:
     build:
       context: ..
       dockerfile: docker/Dockerfile
     command:
       - "--id"
-      - "node-f"
+      - "745cee2f-a42f-4515-89ae-7d5de5a8e296"
       - "--config"
       - "/config/cluster.yaml"
     volumes:
       - "../config/cluster.yaml:/config/cluster.yaml:ro"
     ports:
       - "8085:8080"
+
   node-g:
     build:
       context: ..
       dockerfile: docker/Dockerfile
     command:
       - "--id"
-      - "node-g"
+      - "eb8d1323-5bee-4a07-831a-0f1226ee12c9"
       - "--config"
       - "/config/cluster.yaml"
     volumes:
@@ -100,7 +104,7 @@ services:
       dockerfile: docker/Dockerfile
     command:
       - "--id"
-      - "node-h"
+      - "2479c22e-2536-40e2-a439-130334b00d75"
       - "--config"
       - "/config/cluster.yaml"
     volumes:
