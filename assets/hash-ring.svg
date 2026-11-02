@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 664" width="960" height="664" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif">
+<title>Consistent hash ring: key foo walks clockwise to nodes c, a, and b</title>
+<defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#e6edf3"/></marker></defs>
+<rect x="1" y="1" width="958" height="662" rx="12" fill="#161b22" stroke="#30363d" stroke-width="2"/>
+<circle cx="535" cy="320" r="205" fill="none" stroke="#6e7681" stroke-width="6"/>
+<circle cx="670.9" cy="473.4" r="27" fill="#113c6f"/><text x="670.9" y="473.4" fill="#e6edf3" font-size="23" font-weight="600" text-anchor="middle" dominant-baseline="central">a</text>
+<circle cx="584.1" cy="519.0" r="27" fill="#5c3014"/><text x="584.1" y="519.0" fill="#e6edf3" font-size="23" font-weight="600" text-anchor="middle" dominant-baseline="central">b</text>
+<circle cx="485.9" cy="519.0" r="27" fill="#18452b"/><text x="485.9" y="519.0" fill="#e6edf3" font-size="23" font-weight="600" text-anchor="middle" dominant-baseline="central">c</text>
+<circle cx="399.1" cy="473.4" r="27" fill="#113c6f"/><text x="399.1" y="473.4" fill="#e6edf3" font-size="23" font-weight="600" text-anchor="middle" dominant-baseline="central">a</text>
+<circle cx="343.3" cy="392.7" r="27" fill="#5c3014"/><text x="343.3" y="392.7" fill="#e6edf3" font-size="23" font-weight="600" text-anchor="middle" dominant-baseline="central">b</text>
+<circle cx="331.5" cy="295.3" r="27" fill="#18452b"/><text x="331.5" y="295.3" fill="#e6edf3" font-size="23" font-weight="600" text-anchor="middle" dominant-baseline="central">c</text>
+<circle cx="366.3" cy="203.5" r="27" fill="#113c6f"/><text x="366.3" y="203.5" fill="#e6edf3" font-size="23" font-weight="600" text-anchor="middle" dominant-baseline="central">a</text>
+<circle cx="439.7" cy="138.5" r="27" fill="#5c3014"/><text x="439.7" y="138.5" fill="#e6edf3" font-size="23" font-weight="600" text-anchor="middle" dominant-baseline="central">b</text>
+<path d="M535.0 147.0Q567.3 188.9 615.4 166.8" fill="none" stroke="#e6edf3" stroke-width="2" marker-end="url(#arr)"/>
+<path d="M615.4 166.8Q624.5 219.0 677.4 221.7" fill="none" stroke="#e6edf3" stroke-width="2" marker-end="url(#arr)"/>
+<path d="M677.4 221.7Q661.2 272.1 706.7 299.1" fill="none" stroke="#e6edf3" stroke-width="2" marker-end="url(#arr)"/>
+<path d="M706.7 299.1Q669.0 336.3 696.8 381.3" fill="none" stroke="#e6edf3" stroke-width="2" marker-end="url(#arr)"/>
+<circle cx="630.3" cy="138.5" r="27" fill="#1a7f37"/><text x="630.3" y="138.5" fill="#fff" font-size="23" font-weight="600" text-anchor="middle" dominant-baseline="central">c</text><text x="649.3" y="102.2" fill="#e6edf3" font-size="16" font-weight="600" text-anchor="start" dominant-baseline="central">1. replica: node-c</text>
+<circle cx="703.7" cy="203.5" r="27" fill="#0969da"/><text x="703.7" y="203.5" fill="#fff" font-size="23" font-weight="600" text-anchor="middle" dominant-baseline="central">a</text><text x="737.5" y="180.3" fill="#e6edf3" font-size="16" font-weight="600" text-anchor="start" dominant-baseline="central">2. replica: node-a</text>
+<circle cx="738.5" cy="295.3" r="27" fill="#18452b"/><circle cx="738.5" cy="295.3" r="30" fill="none" stroke="#ff7b72" stroke-width="2.5" stroke-dasharray="6 5"/>
+<text x="738.5" y="295.3" fill="#e6edf3" font-size="23" font-weight="600" text-anchor="middle" dominant-baseline="central">c</text><text x="779.2" y="290.3" fill="#ff7b72" font-size="16" font-weight="600" text-anchor="start" dominant-baseline="central">skip: already chosen</text>
+<circle cx="726.7" cy="392.7" r="27" fill="#bc4c00"/><text x="726.7" y="392.7" fill="#fff" font-size="23" font-weight="600" text-anchor="middle" dominant-baseline="central">b</text><text x="765.0" y="407.2" fill="#e6edf3" font-size="16" font-weight="600" text-anchor="start" dominant-baseline="central">3. replica: node-b</text>
+<circle cx="535.0" cy="115.0" r="24" fill="#e6edf3"/>
+<text x="549.0" y="75.0" fill="#e6edf3" font-size="16" font-weight="600" text-anchor="end" dominant-baseline="central">key "foo" hashes here</text>
+<text x="535.0" y="398.0" fill="#e6edf3" font-size="17" font-weight="600" text-anchor="middle" dominant-baseline="central">Walk clockwise from the key</text>
+<text x="535.0" y="422.0" fill="#9198a1" font-size="16" font-weight="400" text-anchor="middle" dominant-baseline="central">until 3 different nodes are found</text>
+<text x="36.0" y="44.0" fill="#e6edf3" font-size="17" font-weight="600" text-anchor="start" dominant-baseline="central">Nodes</text>
+<text x="57.0" y="74.0" fill="#9198a1" font-size="13" font-weight="400" text-anchor="middle" dominant-baseline="central">chosen</text><text x="125.0" y="74.0" fill="#9198a1" font-size="13" font-weight="400" text-anchor="middle" dominant-baseline="central">not chosen</text>
+<circle cx="57" cy="102" r="14" fill="#0969da"/><text x="57.0" y="102.0" fill="#fff" font-size="14" font-weight="600" text-anchor="middle" dominant-baseline="central">a</text>
+<circle cx="125" cy="102" r="14" fill="#113c6f"/><text x="125.0" y="102.0" fill="#e6edf3" font-size="14" font-weight="600" text-anchor="middle" dominant-baseline="central">a</text>
+<text x="167.0" y="102.0" fill="#e6edf3" font-size="16" font-weight="400" text-anchor="start" dominant-baseline="central">node-a</text>
+<circle cx="57" cy="138" r="14" fill="#bc4c00"/><text x="57.0" y="138.0" fill="#fff" font-size="14" font-weight="600" text-anchor="middle" dominant-baseline="central">b</text>
+<circle cx="125" cy="138" r="14" fill="#5c3014"/><text x="125.0" y="138.0" fill="#e6edf3" font-size="14" font-weight="600" text-anchor="middle" dominant-baseline="central">b</text>
+<text x="167.0" y="138.0" fill="#e6edf3" font-size="16" font-weight="400" text-anchor="start" dominant-baseline="central">node-b</text>
+<circle cx="57" cy="174" r="14" fill="#1a7f37"/><text x="57.0" y="174.0" fill="#fff" font-size="14" font-weight="600" text-anchor="middle" dominant-baseline="central">c</text>
+<circle cx="125" cy="174" r="14" fill="#18452b"/><text x="125.0" y="174.0" fill="#e6edf3" font-size="14" font-weight="600" text-anchor="middle" dominant-baseline="central">c</text>
+<text x="167.0" y="174.0" fill="#e6edf3" font-size="16" font-weight="400" text-anchor="start" dominant-baseline="central">node-c</text>
+<text x="36.0" y="216.0" fill="#c9d1d9" font-size="14" font-weight="400" text-anchor="start" dominant-baseline="central">Every colored dot is a virtual node,</text>
+<text x="36.0" y="236.0" fill="#c9d1d9" font-size="14" font-weight="400" text-anchor="start" dominant-baseline="central">meaning that it's a position that maps</text>
+<text x="36.0" y="256.0" fill="#c9d1d9" font-size="14" font-weight="400" text-anchor="start" dominant-baseline="central">to a physical node.</text>
+<text x="36.0" y="286.0" fill="#c9d1d9" font-size="14" font-weight="400" text-anchor="start" dominant-baseline="central">As you can see, each physical node</text>
+<text x="36.0" y="306.0" fill="#c9d1d9" font-size="14" font-weight="400" text-anchor="start" dominant-baseline="central">appears 4 times in this diagram (256</text>
+<text x="36.0" y="326.0" fill="#c9d1d9" font-size="14" font-weight="400" text-anchor="start" dominant-baseline="central">times in the real implementation).</text>
+<text x="36.0" y="356.0" fill="#c9d1d9" font-size="14" font-weight="400" text-anchor="start" dominant-baseline="central">The key hashes to the white dot, then</text>
+<text x="36.0" y="376.0" fill="#c9d1d9" font-size="14" font-weight="400" text-anchor="start" dominant-baseline="central">walks clockwise. It selects node-c,</text>
+<text x="36.0" y="396.0" fill="#c9d1d9" font-size="14" font-weight="400" text-anchor="start" dominant-baseline="central">then node-a. It skips the next node-c</text>
+<text x="36.0" y="416.0" fill="#c9d1d9" font-size="14" font-weight="400" text-anchor="start" dominant-baseline="central">because it has already been selected,</text>
+<text x="36.0" y="436.0" fill="#c9d1d9" font-size="14" font-weight="400" text-anchor="start" dominant-baseline="central">then selects node-b. We stop once we</text>
+<text x="36.0" y="456.0" fill="#c9d1d9" font-size="14" font-weight="400" text-anchor="start" dominant-baseline="central">have <tspan font-weight="600" fill="#e6edf3">N distinct physical nodes</tspan></text>
+<text x="36.0" y="476.0" fill="#c9d1d9" font-size="14" font-weight="400" text-anchor="start" dominant-baseline="central">(here, N = 3, so we're done).</text>
+<text x="535.0" y="586.0" fill="#c9d1d9" font-size="16" font-weight="400" text-anchor="middle" dominant-baseline="central">So the key "foo" maps to replicas node-c, node-a, and node-b,</text>
+<text x="535.0" y="610.0" fill="#c9d1d9" font-size="16" font-weight="400" text-anchor="middle" dominant-baseline="central">meaning that GET/SET/DELETE operations for "foo" contact these</text>
+<text x="535.0" y="634.0" fill="#c9d1d9" font-size="16" font-weight="400" text-anchor="middle" dominant-baseline="central">3 replicas and require at least two valid responses to succeed.</text>
+</svg>

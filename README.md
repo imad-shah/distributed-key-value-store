@@ -3,9 +3,30 @@
 An in-memory distributed key-value store in Go, served over TCP, with consistent
 hashing, quorum replication, versioned records, tombstones, and read repair.
 
-## Current Progress
+```mermaid
+flowchart TD
+    client(["Client sends<br/>SET, GET, or DELETE"])
+    coordinator["Any node in the cluster<br/>acts as coordinator"]
+    ring{{"Hash ring finds the 3 nodes<br/>that own this key"}}
+    r1[("Replica 1")]
+    r2[("Replica 2")]
+    r3[("Replica 3")]
+    quorum["Coordinator waits for<br/>any 2 of the 3 to respond"]
+    answer(["Client gets the result"])
 
-The store currently supports:
+    client --> coordinator
+    coordinator --> ring
+    ring --> r1 & r2 & r3
+    r1 & r2 & r3 --> quorum
+    quorum --> answer
+```
+
+Every key is copied to 3 nodes, and a request only needs 2 of them to respond, so
+the store keeps working when one of those nodes is down.
+
+## Key Features
+
+The store supports:
 
 - concurrent TCP clients
 - GET, SET, and DELETE commands
@@ -27,7 +48,7 @@ A client can connect to any node. That node acts as the coordinator for the
 request, finds the replicas responsible for the key, and communicates with
 the other nodes when needed.
 
-The current quorum configuration is:
+The quorum configuration is:
 
     replication factor (N) = 3
     read quorum (R)        = 2
@@ -69,11 +90,14 @@ Each node runs two TCP listeners.
 The `client listener` accepts:
 
 ```text
-SET key value    -> OK
-GET key          -> value | NOT_FOUND
-DELETE key       -> OK
-<bad input>      -> error <reason>
+SET key value    -> OK | error <reason>
+GET key          -> value | NOT_FOUND | error <reason>
+DELETE key       -> OK | error <reason>
+<bad input>      -> parse error <reason>
 ```
+
+`error <reason>` means the quorum could not be reached, for example when 2 of the
+key's 3 replicas are down.
 
 The `replica listener` accepts:
 
@@ -116,8 +140,7 @@ All replicas receive the same timestamp and coordinator node ID.
 
 ## Reads
 
-For a `GET`, the coordinator sends reads to all 3 replicas concurrently and
-waits for all replica outcomes
+For a `GET`, the coordinator sends reads to all 3 replicas concurrently.
 
 Only responses that complete without a network/protocol error count toward the
 read quorum. At least 2 valid responses are required
@@ -148,6 +171,39 @@ node-c -> bar @ time 100
 ```
 
 `GET foo` returns `baz` because it has the newer version.
+
+The client gets its answer as soon as 2 replicas respond. The repair of `node-c`
+happens afterwards, without the client waiting for it:
+
+```mermaid
+%%{init: {"sequence": {"mirrorActors": false}}}%%
+sequenceDiagram
+    actor Client
+    participant C as Coordinator
+    participant A as node-a
+    participant B as node-b
+    participant N as node-c (stale)
+
+    Client->>C: GET foo
+
+    Note over C,N: Ask all 3 replicas at once
+    C->>A: REPLICA_GET foo
+    C->>B: REPLICA_GET foo
+    C->>N: REPLICA_GET foo
+
+    A-->>C: baz @ time 200
+    B-->>C: baz @ time 200
+    Note over C: 2 valid responses:<br/>read quorum reached
+    C-->>Client: baz
+
+    rect rgba(127, 127, 127, 0.15)
+        Note over C,N: Read repair, in the background
+        N-->>C: bar @ time 100
+        Note over C: time 200 beats time 100
+        C->>N: REPLICA_SET foo = baz @ time 200
+        N-->>C: OK
+    end
+```
 
 **Note:** A missing value and a tombstone are different
 
@@ -180,6 +236,11 @@ node-c -> tombstone @ version X
 Keeping the tombstone allows replicas to distinguish an intentional delete from
 a node that does not have the key.
 
+`DELETE` returns `OK` whether or not the key exists. The coordinator does not read
+before writing, so deleting a key that was never set still stores a tombstone on
+its 3 replicas, and repeating a `DELETE` is safe. Writing the tombstone regardless
+matters because a replica that missed earlier writes could still hold an old value.
+
 ## Partitioning
 
 Keys are assigned to nodes using consistent hashing with virtual nodes.
@@ -187,8 +248,13 @@ Keys are assigned to nodes using consistent hashing with virtual nodes.
 Each physical node is placed on the 64-bit hash ring at 256 virtual positions.
 A key is assigned to the first node found clockwise from the key's hash.
 
-For replication, the key is assigned to the first 3 distinct physical nodes
+For replication, the key is assigned to the first 3 unique physical nodes
 found clockwise on the ring.
+
+![Hash ring with nodes a, b, and c at many positions. Key foo walks clockwise and finds node-c, node-a, a repeat of node-c that is skipped, then node-b, making c, a, and b its 3 replicas.](assets/hash-ring.svg)
+
+Because each node appears at many positions, the same node can come up twice
+during the walk. Repeats are skipped so all 3 copies land on different nodes.
 
 Consistent hashing keeps rebalancing proportional. Removing one of N nodes
 remaps roughly 1/N of the keys instead of remapping almost everything as
@@ -236,13 +302,16 @@ client_listen_address: ":8080"
 replica_listen_address: ":9090"
 
 nodes:
-  - id: node-a
+  - id: 3fb21a70-0b5b-47b3-beb4-dc9588889d71
     replica_address: node-a:9090
-  - id: node-b
+  - id: b31558ec-23ec-4be8-92c2-df30efc6dadc
     replica_address: node-b:9090
-  - id: node-c
+  - id: 8e91e2ff-b054-49ad-b0e9-5dc2ee5df23b
     replica_address: node-c:9090
+  # ...node-d through node-h
 ```
+
+Each node's `id` is a UUID. It determines where the node sits on the hash ring.
 
 `client_listen_address` is the local address used for client commands.
 
@@ -274,9 +343,9 @@ go test -v ./internal/hashring/    # includes rebalance move percentages
 go run ./benchmarks/distribution.go
 ```
 
-## Running a Three-Node Cluster
+## Running an Eight-Node Cluster
 
-The cluster uses one shared configuration file and one Docker image. Docker Compose starts three instances of the same server with different node IDs.
+The cluster uses one shared configuration file and one Docker image. Docker Compose starts eight instances of the same server with different node IDs.
 
 To start, run:
 
@@ -290,8 +359,13 @@ The client port mappings are:
 localhost:8080 -> node-a client listener
 localhost:8081 -> node-b client listener
 localhost:8082 -> node-c client listener
+localhost:8083 -> node-d client listener
+localhost:8084 -> node-e client listener
+localhost:8085 -> node-f client listener
+localhost:8086 -> node-g client listener
+localhost:8087 -> node-h client listener
 ```
-All three nodes listen for client commands on `port 8080` inside their own
+All eight nodes listen for client commands on `port 8080` inside their own
 containers.
 
 Each node also listens for internal replica commands on `port 9090`. These replica ports are available only inside the Docker Compose network and are not published to the host.
@@ -302,11 +376,11 @@ Once the servers are running, connect to a server:
 nc localhost 8080 # node-a
 ```
 
-Alternatively: 
+Any other node works the same way:
 
 ```bash
 nc localhost 8081 # node-b
-nc localhost 8082 # node-c
+nc localhost 8087 # node-h
 ```
 
 Example commands:
