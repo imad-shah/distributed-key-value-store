@@ -290,6 +290,7 @@ If no reusable connection remains, the pool opens a fresh TCP connection.
 
     benchmarks/          distribution measurement script
     decisions/           architecture decision records
+    assets/              images
 
 ## Cluster Configuration
 
