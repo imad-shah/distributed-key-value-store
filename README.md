@@ -21,8 +21,10 @@ flowchart TD
     quorum --> answer
 ```
 
-Every key is copied to 3 nodes, and a request only needs 2 of them to respond, so
-the store keeps working when one of those nodes is down.
+Every key is copied to 3 nodes (replicas), and a request only needs 2 of them to respond, so
+the store keeps working when one of those nodes is down. 
+
+For a detailed explanation of how these replicas are selected, see [Partitioning](#partitioning).
 
 ## Key Features
 
@@ -44,8 +46,8 @@ The store supports:
 - separate client and replica TCP listeners
 - client/replica protocol isolation
 
-A client can connect to any node. That node acts as the coordinator for the
-request, finds the replicas responsible for the key, and communicates with
+A client can connect to any node. That node will then act as the coordinator for the
+request, so it will find the replicas responsible for the given key, and communicates with
 the other nodes when needed.
 
 The quorum configuration is:
@@ -54,7 +56,9 @@ The quorum configuration is:
     read quorum (R)        = 2
     write quorum (W)       = 2
 
-Guarantees: R + W > N
+With `R = 2`, `W = 2`, and `N = 3`, the system satisfies `R + W > N`. This ensures that every read quorum overlaps with every write quorum by at least one replica. However, concurrent writes and timestamp-based conflict resolution mean this does not guarantee strong consistency.
+
+You can find more on this topic in [*Dynamo: Amazon’s Highly Available Key-value Store*](https://www.allthingsdistributed.com/files/amazon-dynamo-sosp2007.pdf) Chapter 4.5
 
 ## Design
 
@@ -65,9 +69,9 @@ Each stored record contains:
 
 ```go
 type VersionedValue struct {
-    Value     string
-    Version   Version
-    Tombstone bool
+    Value     string      // the string itself being stored
+    Version   Version    // the unique identifier by timestamp of when a transaction occured
+    Tombstone bool      // specifically for deletions, see DELETES below
 }
 ```
 
@@ -76,15 +80,16 @@ write:
 
 ```go
 type Version struct {
-    Timestamp int64
-    NodeID    string
+    Timestamp int64     // time.Now().UnixNano()
+    NodeID    string   // example: node-a
 }
 ```
+The timestamp is used to identify the newest value during quorum reads. If two versions share the same timestamp, the node ID serves as a deterministic tie-breaker.
 
-The timestamp is used to choose the newest value during quorum reads. The node
-ID is used as a deterministic tie-breaker when two versions have the same
-timestamp.
+> **Note:** This approach relies on timestamps to determine which write occurred most recently, which can be unreliable due to clock skew between nodes. The node ID tie-breaker ensures deterministic ordering but does **NOT** guarantee correctness. A more reliable approach, such as [vector clocks](https://www.geeksforgeeks.org/computer-networks/vector-clocks-in-distributed-systems/), can track causal relationships between writes.
 
+
+## Separation of client and replica listeners
 Each node runs two TCP listeners.
 
 The `client listener` accepts:
@@ -107,10 +112,10 @@ REPLICA_GET key
 REPLICA_DELETE key timestamp nodeID
 ```
 
-Commands sent to the wrong listener are rejected. A client can connect to the `client listener` of any node. The node receiving the request becomes the coordinator for that request.
+Commands sent to the wrong listener are rejected. A user/client can connect to the `client listener` of any node, and that node receiving the request becomes the coordinator.
 
-Client commands do not contain replication metadata. The coordinator creates
-the record version and sends internal commands to the replica listeners of the
+> **NOTE**: Client commands do not contain replication metadata. The coordinator creates
+the record version, then sends internal commands to the replica listeners of the
 nodes selected by the hash ring.
 
 Internal `GET` responses include one of these three stored versions:
@@ -205,15 +210,13 @@ sequenceDiagram
     end
 ```
 
-**Note:** A missing value and a tombstone are different
-
-```text
-missing key:
-    no record exists
-
-tombstone:
-    a versioned delete record exists
-```
+> **Note:** A missing value and a tombstone are different. 
+> 
+> A missing key indicates that 
+no record exists at all. 
+> 
+> A tombstone is a versioned record indicating that a key was deleted. 
+Unlike a missing key, it preserves deletion metadata so that older versions can be recognized as stale.
 
 While both return `NOT_FOUND` to client, the tombstone prevents an
 older value from being restored later (zombie data).
@@ -240,6 +243,8 @@ a node that does not have the key.
 before writing, so deleting a key that was never set still stores a tombstone on
 its 3 replicas, and repeating a `DELETE` is safe. Writing the tombstone regardless
 matters because a replica that missed earlier writes could still hold an old value.
+
+For more, see this Wikipedia on the topic: [Tombstones](https://en.wikipedia.org/wiki/Tombstone_(data_store))
 
 ## Partitioning
 
